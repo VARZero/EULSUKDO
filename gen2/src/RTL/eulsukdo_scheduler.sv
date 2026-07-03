@@ -19,6 +19,7 @@ module eulsukdo_scheduler #(
     parameter int STRUCT_EX_CORES                       = 5,
     parameter int STRUCT_EX_OUT_RESULT[STRUCT_EX_CORES] = {1, 1, 1, 1, 1},
     parameter int STRUCT_EX_OUT_RESULT_SUM              = 5,
+    parameter int STRUCT_EX_BRANCH                      = 1,
     parameter int STRUCT_PRM_ENTRY_UPDATE               = 5,
     parameter int STRUCT_PRM_ENTRY_BUFFER               = 4,
     parameter int STRUCT_UNALLOCATE_PHYREG              = 4,
@@ -88,31 +89,65 @@ module eulsukdo_scheduler #(
 
 // START ===[ INTERNAL WIRE AREA ]=== START //
     // IM -> NEL : Instruction Receive
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                          im_nel_recv_pc_valid;
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                          im_nel_recv_pc_get;
-    wire [(STRUCT_DECODE_NEW_INST * IS_INST_BITWIDTH)-1:0]                     im_nel_recv_pc;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         im_nel_recv_pc_valid;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         im_nel_recv_pc_get;
+    wire [(STRUCT_DECODE_NEW_INST * IS_INST_BITWIDTH)-1:0]                                    im_nel_recv_pc;
 
     // PRM -> NEL : Allocatable Physical Registers
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                          prm_nel_phyreg_valid;
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                          prm_nel_phyreg_get;
-    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]           prm_nel_phyreg_data;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         prm_nel_phyreg_valid;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         prm_nel_phyreg_get;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                          prm_nel_phyreg_data;
 
-    // WBC -> NEL : Done Physical Registers
-    wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                        wbc_nel_done_phyreg_valid;
-    wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]         wbc_nel_done_phyreg_data;
+    // WBC -> NEL, PRM (Broadcast) : Done Physical Registers
+    wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                                       wbc_broadcast_done_phyreg_valid;
+    wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                        wbc_broadcast_done_phyreg_data;
 
     // NEL -> IST : New Internal Instructions
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                          nel_ist_new_inst_valid;
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                          nel_ist_new_inst_get;
-    wire [(STRUCT_EX_CORES *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]             nel_ist_new_inst_data;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_ist_new_inst_valid;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_ist_new_inst_get;
+    wire [(STRUCT_EX_CORES *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                            nel_ist_new_inst_data;
 
     // NEL -> FCL : Retired Physical Registers
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                          nel_fcl_retired_phyreg_valid;
-    wire [(STRUCT_EX_CORES *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]       nel_fcl_retired_phyreg_data;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_fcl_retired_phyreg_valid;
+    wire [(STRUCT_EX_CORES *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]                      nel_fcl_retired_phyreg_data;
     
     // NEL -> FCL : Jump/Branch Information
-    wire                                                                       nel_fcl_jumpbranch_valid;
-    wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                               nel_fcl_jumpbranch_data;
+    wire                                                                                      nel_fcl_jumpbranch_valid;
+    wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                                              nel_fcl_jumpbranch_data;
+
+    // PRM -> IST : Ready Phyreg/ISTmap pair
+    wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        prm_ist_ready_phyreg_valid;
+    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                         prm_ist_ready_phyreg_data;
+
+    // IST -> RS : Executable (All phyreg in instruction are ready) Internal Instructions
+    wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_valid;
+    wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_get;
+    wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] ist_rs_ready_inst_data;
+
+    // IST -> PRM : Wait Phyreg/ISTmap pair
+    wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        ist_prm_wait_phyreg_valid;
+    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                         ist_prm_wait_phyreg_data;
+
+    // RS -> EX : Wait EX Instructions
+    wire [STRUCT_EX_CORES-1:0]                                                                rs_ex_wait_inst_valid;
+    wire [STRUCT_EX_CORES-1:0]                                                                rs_ex_wait_inst_get;
+    wire [(STRUCT_EX_CORES *(_BITWIDTH_EX_INST_WIDTH) )-1:0]                                  rs_ex_wait_inst_data;
+
+    // EX -> WBC : Done EX Branch Result
+    wire [STRUCT_EX_BRANCH-1:0] ex_wbc_result_branch_valid;
+    wire [] ex_wbc_result_branch_data;
+    
+    // EX -> WBC : Done EX Phyreg Result
+    wire [STRUCT_EX_OUT_RESULT_SUM-1:0] ex_wbc_result_phyreg_valid;
+    wire [] ex_wbc_result_phyreg_data;
+    
+    // WBC -> FCL : Branch Result
+    wire [STRUCT_EX_BRANCH-1:0] wbc_fcl_branch_valid;
+    wire [] wbc_fcl_branch_data;
+    
+    // WBC -> FCL : Done PC
+    wire [STRUCT_EX_OUT_RESULT_SUM-1:0] wbc_fcl_done_pc_valid;
+    wire [] wbc_fcl_done_pc_data;
 // END   ===[ INTERNAL WIRE AREA ]===   END //
 
 // START ===[ INSTANCE AREA ]=== START //
@@ -132,8 +167,8 @@ module eulsukdo_scheduler #(
         .i_prm_phyreg_data              (prm_nel_phyreg_data),
 
         // Done Physical Registers Input (WBC)
-        .i_wbc_done_phyreg_valid        (wbc_nel_done_phyreg_valid),
-        .i_wbc_done_phyreg_data         (wbc_nel_done_phyreg_data),
+        .i_wbc_done_phyreg_valid        (wbc_broadcast_done_phyreg_valid),
+        .i_wbc_done_phyreg_data         (wbc_broadcast_done_phyreg_data),
 
         // Create Internal Instruction Output (IST)
         .o_ist_new_inst_valid           (nel_ist_new_inst_valid),
@@ -149,10 +184,71 @@ module eulsukdo_scheduler #(
         .o_fcl_jumpbranch_data          (nel_fcl_jumpbranch_data)
     );
 
-    
+    instruction_state_table #(        
+    ) U_INSTRUCTION_STATE_TABLE (
+        .clk                            (clk),
+        .reset_n                        (reset_n),
+
+        // New Internal Instruction Input (NEL)
+        .i_nel_new_inst_valid           (nel_ist_new_inst_valid),
+        .o_nel_new_inst_get             (nel_ist_new_inst_get),
+        .i_nel_new_inst_data            (nel_ist_new_inst_data),
+
+        // Ready Physical Registers Input (PRM)
+        .i_prm_ready_phyreg_valid       (prm_ist_ready_phyreg_valid), 
+        .i_prm_ready_phyreg_data        (prm_ist_ready_phyreg_data), 
+        
+        // Executable (All phyreg in instruction are ready) Internal Instruction Output (RS)
+        .o_rs_ready_inst_valid          (ist_rs_ready_inst_valid),
+        .i_rs_ready_inst_get            (ist_rs_ready_inst_get),
+        .o_rs_ready_inst_data           (ist_rs_ready_inst_data),
+
+        // Wait Physical Registers Output (PRM)
+        .o_prm_ready_phyreg_valid       (ist_prm_wait_phyreg_valid), 
+        .o_prm_ready_phyreg_data        (ist_prm_wait_phyreg_data)
+    );
+
+    ready_station #(
+    ) U_READY_STATION (
+        .clk                            (clk),
+        .reset_n                        (reset_n),
+
+        // Executable (All phyreg in instruction are ready) Internal Instruction Input (IST)
+        .i_ist_ready_inst_valid         (ist_rs_ready_inst_valid),
+        .o_ist_ready_inst_get           (ist_rs_ready_inst_get),
+        .i_ist_ready_inst_data          (ist_rs_ready_inst_data),
+
+        // Wait EX Instruction Output (EX)
+        .o_ex_wait_inst_valid           (rs_ex_wait_inst_valid),
+        .i_ex_wait_inst_get             (rs_ex_wait_inst_get),
+        .o_ex_wait_inst_data            (rs_ex_wait_inst_data),
+    );
+
+    write_back_concatenation #(
+    ) U_WRITE_BACK_CONCATENATION (
+        // Result branch EX Input (EX)
+        .i_ex_result_branch_valid       (ex_wbc_result_branch_valid),
+        .i_ex_result_branch_data        (ex_wbc_result_branch_data),
+
+        // Result phyreg EX Input (EX)
+        .i_ex_result_phyreg_valid       (ex_wbc_result_phyreg_valid),
+        .i_ex_result_phyreg_data        (ex_wbc_result_phyreg_data),
+
+        // Branch Result Output (FCL)
+        .o_fcl_branch_valid             (wbc_fcl_branch_valid),
+        .o_fcl_branch_data              (wbc_fcl_branch_data),
+
+        // Done PC Output (FCL)
+        .o_fcl_done_pc_valid            (wbc_fcl_done_pc_valid),
+        .o_fcl_done_pc_data             (wbc_fcl_done_pc_data),
+
+        // Broadcast Done phyreg Output (NEL, PRM)
+        .o_broadcast_done_phyreg_valid  (wbc_broadcast_done_phyreg_valid),
+        .o_broadcast_done_phyreg_data   (wbc_broadcast_done_phyreg_data),
+    );
 // END   ===[ INSTANCE AREA ]===   END //
 
-// START ===[ OUTPUT AREA ]=== START //
-// END   ===[ OUTPUT AREA ]===   END //
+// START ===[ INPUT, OUTPUT AREA ]=== START //
+// END   ===[ INPUT, OUTPUT AREA ]===   END //
 
 endmodule

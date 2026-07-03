@@ -44,7 +44,13 @@ module eulsukdo_scheduler #(
                                                          + (_BITWIDTH_STRUCT_PHYREGS * IS_INST_OPERANDS), // rs1..n
     localparam int _BITWIDTH_EX_RESULT_WIDTH            = BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
-                                                         + _BITWIDTH_STRUCT_PHYREGS // rd
+                                                         + _BITWIDTH_STRUCT_PHYREGS, // rd
+    localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
+    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
+                                                         + 1 // Branch Flag
+                                                         + IS_INST_PC_BITWIDTH // New Program Counter
 ) (
     input  wire                                                                clk,
     input  wire                                                                reset_n,
@@ -99,37 +105,51 @@ module eulsukdo_scheduler #(
     wire [STRUCT_DECODE_NEW_INST-1:0]                                          nel_ist_new_inst_valid;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                          nel_ist_new_inst_get;
     wire [(STRUCT_EX_CORES *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]             nel_ist_new_inst_data;
+
+    // NEL -> FCL : Retired Physical Registers
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                          nel_fcl_retired_phyreg_valid;
+    wire [(STRUCT_EX_CORES *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]       nel_fcl_retired_phyreg_data;
+    
+    // NEL -> FCL : Jump/Branch Information
+    wire                                                                       nel_fcl_jumpbranch_valid;
+    wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                               nel_fcl_jumpbranch_data;
 // END   ===[ INTERNAL WIRE AREA ]===   END //
 
 // START ===[ INSTANCE AREA ]=== START //
     new_entry_logic #(
     ) U_NEW_ENTRY_LOGIC (
-        .clk                    (clk),
-        .reset_n                (reset_n),
+        .clk                            (clk),
+        .reset_n                        (reset_n),
 
         // Instruction Input (IM)
-        .i_im_recv_pc_valid     (im_nel_recv_pc_valid),
-        .o_im_recv_pc_get       (im_nel_recv_pc_get),
-        .i_im_recv_pc           (im_nel_recv_pc),
+        .i_im_recv_pc_valid             (im_nel_recv_pc_valid),
+        .o_im_recv_pc_get               (im_nel_recv_pc_get),
+        .i_im_recv_pc                   (im_nel_recv_pc),
 
         // Allocate Physical Registers Input (PRM)
-        .i_prm_phyreg_valid     (prm_nel_phyreg_valid),
-        .o_prm_phyreg_get       (prm_nel_phyreg_get),
-        .i_prm_phyreg_data      (prm_nel_phyreg_data),
+        .i_prm_phyreg_valid             (prm_nel_phyreg_valid),
+        .o_prm_phyreg_get               (prm_nel_phyreg_get),
+        .i_prm_phyreg_data              (prm_nel_phyreg_data),
 
         // Done Physical Registers Input (WBC)
-        .i_wbc_done_phyreg_valid(wbc_nel_done_phyreg_valid),
-        .i_wbc_done_phyreg_data (wbc_nel_done_phyreg_data),
+        .i_wbc_done_phyreg_valid        (wbc_nel_done_phyreg_valid),
+        .i_wbc_done_phyreg_data         (wbc_nel_done_phyreg_data),
 
         // Create Internal Instruction Output (IST)
-        .o_ist_new_inst_valid    (nel_ist_new_inst_valid),
-        .i_ist_new_inst_get      (nel_ist_new_inst_get),
-        .o_ist_new_inst_data     (nel_ist_new_inst_data),
+        .o_ist_new_inst_valid           (nel_ist_new_inst_valid),
+        .i_ist_new_inst_get             (nel_ist_new_inst_get),
+        .o_ist_new_inst_data            (nel_ist_new_inst_data),
 
-        // 
+        // Retired Physical Registers Output (FCL)
+        .o_fcl_retired_phyreg_valid     (nel_fcl_retired_phyreg_valid),
+        .o_fcl_retired_phyreg_data      (nel_fcl_retired_phyreg_data),
+
+        // Jump/Branch Information Output (FCL)
+        .o_fcl_jumpbranch_valid         (nel_fcl_jumpbranch_valid),
+        .o_fcl_jumpbranch_data          (nel_fcl_jumpbranch_data)
     );
 
-
+    
 // END   ===[ INSTANCE AREA ]===   END //
 
 // START ===[ OUTPUT AREA ]=== START //

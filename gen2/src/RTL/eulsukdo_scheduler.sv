@@ -51,7 +51,9 @@ module eulsukdo_scheduler #(
                                                          + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
     localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
                                                          + 1 // Branch Flag
-                                                         + IS_INST_PC_BITWIDTH // New Program Counter
+                                                         + IS_INST_PC_BITWIDTH, // New Program Counter
+    localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
 ) (
     input  wire                                                                clk,
     input  wire                                                                reset_n,
@@ -134,20 +136,20 @@ module eulsukdo_scheduler #(
     wire [(STRUCT_EX_CORES *(_BITWIDTH_EX_INST_WIDTH) )-1:0]                                  rs_ex_wait_inst_data;
 
     // EX -> WBC : Done EX Branch Result
-    wire [STRUCT_EX_BRANCH-1:0] ex_wbc_result_branch_valid;
-    wire [] ex_wbc_result_branch_data;
+    wire [STRUCT_EX_BRANCH-1:0]                                                               ex_wbc_result_branch_valid;
+    wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_JUMP_BRANCH_INFO) )-1:0]                       ex_wbc_result_branch_data;
     
     // EX -> WBC : Done EX Phyreg Result
-    wire [STRUCT_EX_OUT_RESULT_SUM-1:0] ex_wbc_result_phyreg_valid;
-    wire [] ex_wbc_result_phyreg_data;
+    wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                                       ex_wbc_result_phyreg_valid;
+    wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                        ex_wbc_result_phyreg_data;
     
     // WBC -> FCL : Branch Result
-    wire [STRUCT_EX_BRANCH-1:0] wbc_fcl_branch_valid;
-    wire [] wbc_fcl_branch_data;
+    wire [STRUCT_EX_BRANCH-1:0]                                                               wbc_fcl_branch_valid;
+    wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_JUMP_BRANCH_INFO) )-1:0]                       wbc_fcl_branch_data;
     
     // WBC -> FCL : Done PC
-    wire [STRUCT_EX_OUT_RESULT_SUM-1:0] wbc_fcl_done_pc_valid;
-    wire [] wbc_fcl_done_pc_data;
+    wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                                       wbc_fcl_done_pc_valid;
+    wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_EX_DONE_PC) )-1:0]                     wbc_fcl_done_pc_data;
 // END   ===[ INTERNAL WIRE AREA ]===   END //
 
 // START ===[ INSTANCE AREA ]=== START //
@@ -245,6 +247,12 @@ module eulsukdo_scheduler #(
         // Broadcast Done phyreg Output (NEL, PRM)
         .o_broadcast_done_phyreg_valid  (wbc_broadcast_done_phyreg_valid),
         .o_broadcast_done_phyreg_data   (wbc_broadcast_done_phyreg_data),
+    );
+
+    flow_control_logic #(
+
+    ) U_FLOW_CONTROL_LOGIC (
+        
     );
 // END   ===[ INSTANCE AREA ]===   END //
 

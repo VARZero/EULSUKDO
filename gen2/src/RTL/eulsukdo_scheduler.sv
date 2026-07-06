@@ -43,16 +43,16 @@ module eulsukdo_scheduler #(
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd
                                                          + (_BITWIDTH_STRUCT_PHYREGS * IS_INST_OPERANDS), // rs1..n
-    localparam int _BITWIDTH_EX_RESULT_WIDTH            = BITWIDTH_STRUCT_FLOW_WINDOWS
+    localparam int _BITWIDTH_EX_RESULT_WIDTH            = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
                                                          + _BITWIDTH_STRUCT_PHYREGS, // rd
-    localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = BITWIDTH_STRUCT_FLOW_WINDOWS
+    localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
                                                          + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
     localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
                                                          + 1 // Branch Flag
                                                          + IS_INST_PC_BITWIDTH, // New Program Counter
-    localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = BITWIDTH_STRUCT_FLOW_WINDOWS
+    localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
     input  wire                                                                clk,
@@ -257,7 +257,7 @@ module eulsukdo_scheduler #(
         // Wait EX Instruction Output (EX)
         .o_ex_wait_inst_valid           (rs_ex_wait_inst_valid),
         .i_ex_wait_inst_get             (rs_ex_wait_inst_get),
-        .o_ex_wait_inst_data            (rs_ex_wait_inst_data),
+        .o_ex_wait_inst_data            (rs_ex_wait_inst_data)
     );
 
     write_back_concatenation #(
@@ -280,7 +280,7 @@ module eulsukdo_scheduler #(
 
         // Broadcast Done phyreg Output (NEL, PRM)
         .o_broadcast_done_phyreg_valid  (wbc_broadcast_done_phyreg_valid),
-        .o_broadcast_done_phyreg_data   (wbc_broadcast_done_phyreg_data),
+        .o_broadcast_done_phyreg_data   (wbc_broadcast_done_phyreg_data)
     );
 
     flow_control_logic #(
@@ -308,6 +308,33 @@ module eulsukdo_scheduler #(
         // Unallocate Retired Registers Output (PRM)
         .o_prm_unallocate_phyreg_valid  (fcl_prm_unallocate_phyreg_valid),
         .o_prm_unallocate_phyreg_data   (fcl_prm_unallocate_phyreg_data)
+    );
+
+    physical_register_mapper #(
+    ) U_PHYSICAL_REGISTER_MAPPER (
+        .clk                            (clk),
+        .reset_n                        (reset_n),
+
+        // Wait Physical Registers Input (IST)
+        .i_ist_ready_phyreg_valid       (ist_prm_wait_phyreg_valid), 
+        .i_ist_ready_phyreg_data        (ist_prm_wait_phyreg_data),
+        
+        // Broadcast Done phyreg Input (WBC)
+        .i_wbc_done_phyreg_valid        (wbc_broadcast_done_phyreg_valid),
+        .i_wbc_done_phyreg_data         (wbc_broadcast_done_phyreg_data),
+
+        // Unallocate Retired Registers Input (FCL)
+        .i_fcl_unallocate_phyreg_valid  (fcl_prm_unallocate_phyreg_valid),
+        .i_fcl_unallocate_phyreg_data   (fcl_prm_unallocate_phyreg_data),
+
+        // Allocate Physical Registers Output (NEL)
+        .o_nel_phyreg_valid             (prm_nel_phyreg_valid),
+        .i_nel_phyreg_get               (prm_nel_phyreg_get),
+        .o_nel_phyreg_data              (prm_nel_phyreg_data),
+
+        // Ready Physical Registers Output (IST)
+        .o_ist_ready_phyreg_valid       (prm_ist_ready_phyreg_valid), 
+        .o_ist_ready_phyreg_data        (prm_ist_ready_phyreg_data),
     );
 
 // END   ===[ INSTANCE AREA ]===   END //

@@ -150,6 +150,28 @@ module eulsukdo_scheduler #(
     // WBC -> FCL : Done PC
     wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                                       wbc_fcl_done_pc_valid;
     wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_EX_DONE_PC) )-1:0]                     wbc_fcl_done_pc_data;
+
+    // FCL -> IM : New PC Request
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         fcl_im_req_pc_valid;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         fcl_im_req_pc_get;
+    wire [(STRUCT_DECODE_NEW_INST *(IS_INST_PC_BITWIDTH) )-1:0]                               fcl_im_req_pc;
+
+    // FCL -> PRM : Unallocate Retired Registers
+    wire [STRUCT_UNALLOCATE_PHYREG-1:0]                                                       fcl_prm_unallocate_phyreg_valid;
+    wire [(STRUCT_UNALLOCATE_PHYREG *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                        fcl_prm_unallocate_phyreg_data;
+
+    // DECODER -> NEL : ISA Infomation
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_exception;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_EX_PATH) )-1:0]                          dec_nel_decode_expath;
+    wire [(STRUCT_DECODE_NEW_INST *(EX_INST_MICROOP_BITWIDTH) )-1:0]                          dec_nel_decode_microop;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_rd;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_newreg;
+    wire [(STRUCT_DECODE_NEW_INST *(IS_INST_OPERANDS) )-1:0]                                  dec_nel_decode_rs;
+    wire [(STRUCT_DECODE_NEW_INST *(IS_INST_IMM) )-1:0]                                       dec_nel_decode_imm;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_jump;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_jump_reg;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_branch;
+
 // END   ===[ INTERNAL WIRE AREA ]===   END //
 
 // START ===[ INSTANCE AREA ]=== START //
@@ -171,6 +193,18 @@ module eulsukdo_scheduler #(
         // Done Physical Registers Input (WBC)
         .i_wbc_done_phyreg_valid        (wbc_broadcast_done_phyreg_valid),
         .i_wbc_done_phyreg_data         (wbc_broadcast_done_phyreg_data),
+
+        // Decoder Input (Decoder)
+        .i_dec_decode_exception         (dec_nel_decode_exception),
+        .i_dec_decode_expath            (dec_nel_decode_expath),
+        .i_dec_decode_microop           (dec_nel_decode_microop),
+        .i_dec_decode_rd                (dec_nel_decode_rd),
+        .i_dec_decode_newreg            (dec_nel_decode_newreg),
+        .i_dec_decode_rs                (dec_nel_decode_rs),
+        .i_dec_decode_imm               (dec_nel_decode_imm),
+        .i_dec_decode_jump              (dec_nel_decode_jump),
+        .i_dec_decode_jump_reg          (dec_nel_decode_jump_reg),
+        .i_dec_decode_branch            (dec_nel_decode_branch),
 
         // Create Internal Instruction Output (IST)
         .o_ist_new_inst_valid           (nel_ist_new_inst_valid),
@@ -250,13 +284,66 @@ module eulsukdo_scheduler #(
     );
 
     flow_control_logic #(
-
     ) U_FLOW_CONTROL_LOGIC (
+        .clk                            (clk),
+        .reset_n                        (reset_n),
         
+        // Done PC Input (WBC)
+        .i_wbc_done_pc_valid            (wbc_fcl_done_pc_valid),
+        .i_wbc_done_pc_data             (wbc_fcl_done_pc_data),
+        
+        // Jump/Branch Information Input (NEL)
+        .i_nel_jumpbranch_valid         (nel_fcl_jumpbranch_valid),
+        .i_nel_jumpbranch_data          (nel_fcl_jumpbranch_data),
+
+        // Retired Physical Registers Input (NEL)
+        .i_nel_retired_phyreg_valid     (nel_fcl_retired_phyreg_valid),
+        .i_nel_retired_phyreg_data      (nel_fcl_retired_phyreg_data),
+
+        // Request New Instruction Output (IM)
+        .o_im_req_pc_valid              (fcl_im_req_pc_valid),
+        .i_im_req_pc_get                (fcl_im_req_pc_get),
+        .o_im_req_pc                    (fcl_im_req_pc),
+
+        // Unallocate Retired Registers Output (PRM)
+        .o_prm_unallocate_phyreg_valid  (fcl_prm_unallocate_phyreg_valid),
+        .o_prm_unallocate_phyreg_data   (fcl_prm_unallocate_phyreg_data)
     );
+
 // END   ===[ INSTANCE AREA ]===   END //
 
 // START ===[ INPUT, OUTPUT AREA ]=== START //
+    // PC Request Output
+    assign o_im_req_pc_valid          = fcl_im_req_pc_valid;
+    assign fcl_im_req_pc_get          = i_im_req_pc_get;
+    assign o_im_req_pc                = fcl_im_req_pc;
+
+    // Instruction Receive Input
+    assign im_nel_recv_pc_valid       = i_im_recv_pc_valid;
+    assign o_im_recv_pc_get           = im_nel_recv_pc_get;
+    assign im_nel_recv_pc             = i_im_recv_pc;
+
+    // Decoder Info Receive
+    assign dec_nel_decode_exception   = i_nel_decode_exception;
+    assign dec_nel_decode_expath      = i_nel_decode_expath;
+    assign dec_nel_decode_microop     = i_nel_decode_microop;
+    assign dec_nel_decode_rd          = i_nel_decode_rd;
+    assign dec_nel_decode_newreg      = i_nel_decode_newreg;
+    assign dec_nel_decode_rs          = i_nel_decode_rs;
+    assign dec_nel_decode_imm         = i_nel_decode_imm;
+    assign dec_nel_decode_jump        = i_nel_decode_jump;
+    assign dec_nel_decode_jump_reg    = i_nel_decode_jump_reg;
+    assign dec_nel_decode_branch      = i_nel_decode_branch;
+
+    // EX Inst Push (RS Out)
+    assign o_rs_entry_valid           = rs_ex_wait_inst_valid;
+    assign rs_ex_wait_inst_get        = i_rs_entry_get;
+    assign o_rs_entry_data            = rs_ex_wait_inst_data;
+
+    // EX Result Receive (EX Out)
+    assign ex_wbc_result_phyreg_valid = i_wbc_result_valid;
+    assign ex_wbc_result_phyreg_data  = i_wbc_result_data;
+
 // END   ===[ INPUT, OUTPUT AREA ]===   END //
 
 endmodule

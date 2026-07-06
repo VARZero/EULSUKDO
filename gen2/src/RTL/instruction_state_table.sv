@@ -1,5 +1,5 @@
 `timescale 1ns/1ps
-module new_entry_logic #(
+module instruction_state_table #(
     // Instruction Set Parameters
     parameter int IS_INST_PC_BITWIDTH                   = 32,
     parameter int IS_INST_PC_STEP                       = 4,
@@ -59,48 +59,26 @@ module new_entry_logic #(
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
-    input wire                                                                               clk,
-    input wire                                                                               reset_n,
+    input  wire                                                                                      clk,
+    input  wire                                                                                      reset_n,
 
-    // Instruction Input (IM)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_recv_pc_valid,
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_recv_pc_get,
-    input  wire [(STRUCT_DECODE_NEW_INST * _BITWIDTH_FLOW_WINDOWS_PC)-1:0]                   i_im_recv_pc,
-    input  wire [(STRUCT_DECODE_NEW_INST * IS_INST_BITWIDTH)-1:0]                            i_im_recv_pc,
+    // New Internal Instruction Input (NEL)
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                         i_nel_new_inst_valid,
+    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                         o_nel_new_inst_get,
+    input  wire [(STRUCT_EX_CORES *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                            i_nel_new_inst_data,
 
-    // Allocate Physical Registers Input (PRM)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_prm_phyreg_valid,
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_prm_phyreg_get,
-    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                  i_prm_phyreg_data,
+    // Ready Physical Registers Input (PRM)
+    input  wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        i_prm_ready_phyreg_valid,
+    input  wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                         i_prm_ready_phyreg_data,
+    
+    // Executable (All phyreg in instruction are ready) Internal Instruction Output (RS)
+    output wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               o_rs_ready_inst_valid,
+    input  wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               i_rs_ready_inst_get,
+    output wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] o_rs_ready_inst_data,
 
-    // Done Physical Registers Input (WBC)
-    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                               i_wbc_done_phyreg_valid,
-    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                i_wbc_done_phyreg_data,
-
-    // Decoder Input (Decoder)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_exception,
-    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_EX_PATH) )-1:0]                  i_dec_decode_expath,
-    input  wire [(STRUCT_DECODE_NEW_INST *(EX_INST_MICROOP_BITWIDTH) )-1:0]                  i_dec_decode_microop,
-    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_IS_INST_REGS) )-1:0]                    i_dec_decode_rd,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_newreg,
-    input  wire [((STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS) *(_BITWIDTH_IS_INST_REGS) )-1:0] i_dec_decode_rs,
-    input  wire [(STRUCT_DECODE_NEW_INST *(IS_INST_IMM) )-1:0]                               i_dec_decode_imm,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_jump,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_jump_reg,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_branch,
-
-    // Create Internal Instruction Output (IST)
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_ist_new_inst_valid,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_ist_new_inst_get,
-    output wire [(STRUCT_EX_CORES *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                    o_ist_new_inst_data,
-
-    // Retired Physical Registers Output (FCL)
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_fcl_retired_phyreg_valid,
-    output wire [(STRUCT_EX_CORES *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]              o_fcl_retired_phyreg_data,
-
-    // Jump/Branch Information Output (FCL)
-    output wire                                                                              o_fcl_jumpbranch_valid,
-    output wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                                      o_fcl_jumpbranch_data
+    // Wait Physical Registers Output (PRM)
+    output wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        o_prm_ready_phyreg_valid,
+    output wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                         o_prm_ready_phyreg_data
 );
 
 endmodule

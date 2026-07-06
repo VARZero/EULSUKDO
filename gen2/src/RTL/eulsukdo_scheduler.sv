@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 module eulsukdo_scheduler #(
     // Instruction Set Parameters
     parameter int IS_INST_PC_BITWIDTH                   = 32,
@@ -27,9 +28,12 @@ module eulsukdo_scheduler #(
     parameter int STRUCT_FLOW_PC_MAX_RANGE              = 16,
 
     // Synthesis Create Local Parameters
+    localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
     localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
     localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
     localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH,
     localparam int _BITWIDTH_INTERNAL_INST_WIDTH        = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
                                                          + EX_INST_MICROOP_BITWIDTH
@@ -55,45 +59,47 @@ module eulsukdo_scheduler #(
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
-    input  wire                                                                clk,
-    input  wire                                                                reset_n,
+    input  wire                                                                              clk,
+    input  wire                                                                              reset_n,
 
     // PC Request
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                   o_im_req_pc_valid,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                   i_im_req_pc_get,
-    output wire [(STRUCT_DECODE_NEW_INST * IS_INST_PC_BITWIDTH)-1:0]           o_im_req_pc,
+    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_req_pc_valid,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_req_pc_get,
+    output wire [(STRUCT_DECODE_NEW_INST * _BITWIDTH_FLOW_WINDOWS_PC)-1:0]                   o_im_req_pc,
     // Instruction Receive
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                   i_im_recv_pc_valid,
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                   o_im_recv_pc_get,
-    input  wire [(STRUCT_DECODE_NEW_INST * IS_INST_BITWIDTH)-1:0]              i_im_recv_pc,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_recv_inst_valid,
+    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_recv_inst_get,
+    input  wire [(STRUCT_DECODE_NEW_INST * _BITWIDTH_FLOW_WINDOWS_PC)-1:0]                   i_im_recv_pc,
+    input  wire [(STRUCT_DECODE_NEW_INST * IS_INST_BITWIDTH)-1:0]                            i_im_recv_inst,
     
     // Decoder Info Receive
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                   i_nel_decode_exception,
-    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_EX_PATH) )-1:0]    i_nel_decode_expath,
-    input  wire [(STRUCT_DECODE_NEW_INST *(EX_INST_MICROOP_BITWIDTH) )-1:0]    i_nel_decode_microop,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                   i_nel_decode_rd,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                   i_nel_decode_newreg,
-    input  wire [(STRUCT_DECODE_NEW_INST *(IS_INST_OPERANDS) )-1:0]            i_nel_decode_rs,
-    input  wire [(STRUCT_DECODE_NEW_INST *(IS_INST_IMM) )-1:0]                 i_nel_decode_imm,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                   i_nel_decode_jump,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                   i_nel_decode_jump_reg,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                   i_nel_decode_branch,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_nel_decode_exception,
+    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_EX_PATH) )-1:0]                  i_nel_decode_expath,
+    input  wire [(STRUCT_DECODE_NEW_INST *(EX_INST_MICROOP_BITWIDTH) )-1:0]                  i_nel_decode_microop,
+    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_IS_INST_REGS) )-1:0]                    i_nel_decode_rd,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_nel_decode_newreg,
+    input  wire [((STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS) *(_BITWIDTH_IS_INST_REGS) )-1:0] i_nel_decode_rs,
+    input  wire [(STRUCT_DECODE_NEW_INST *(IS_INST_IMM) )-1:0]                               i_nel_decode_imm,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_nel_decode_jump,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_nel_decode_jump_reg,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_nel_decode_branch,
     
     // EX Inst Push (RS Out)
-    output wire [STRUCT_EX_CORES-1:0]                                          o_rs_entry_valid,
-    input  wire [STRUCT_EX_CORES-1:0]                                          i_rs_entry_get,
-    output wire [(STRUCT_EX_CORES *(_BITWIDTH_EX_INST_WIDTH) )-1:0]            o_rs_entry_data,
+    output wire [STRUCT_EX_CORES-1:0]                                                        o_rs_entry_valid,
+    input  wire [STRUCT_EX_CORES-1:0]                                                        i_rs_entry_get,
+    output wire [(STRUCT_EX_CORES *(_BITWIDTH_EX_INST_WIDTH) )-1:0]                          o_rs_entry_data,
 
     // EX Result Receive (EX Out)
-    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                 i_wbc_result_valid,
-    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_EX_RESULT_WIDTH) )-1:0] i_wbc_result_data
+    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                               i_wbc_result_valid,
+    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_EX_RESULT_WIDTH) )-1:0]               i_wbc_result_data
 );
 
 // START ===[ INTERNAL WIRE AREA ]=== START //
     // IM -> NEL : Instruction Receive
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         im_nel_recv_pc_valid;
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         im_nel_recv_pc_get;
-    wire [(STRUCT_DECODE_NEW_INST * IS_INST_BITWIDTH)-1:0]                                    im_nel_recv_pc;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         im_nel_recv_inst_valid;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         im_nel_recv_inst_get;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_FLOW_WINDOWS_PC) )-1:0]                         im_nel_recv_pc;
+    wire [(STRUCT_DECODE_NEW_INST *(IS_INST_BITWIDTH) )-1:0]                                  im_nel_recv_inst;
 
     // PRM -> NEL : Allocatable Physical Registers
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         prm_nel_phyreg_valid;
@@ -164,9 +170,9 @@ module eulsukdo_scheduler #(
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_exception;
     wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_EX_PATH) )-1:0]                          dec_nel_decode_expath;
     wire [(STRUCT_DECODE_NEW_INST *(EX_INST_MICROOP_BITWIDTH) )-1:0]                          dec_nel_decode_microop;
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_rd;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_IS_INST_REGS) )-1:0]                            dec_nel_decode_rd;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_newreg;
-    wire [(STRUCT_DECODE_NEW_INST *(IS_INST_OPERANDS) )-1:0]                                  dec_nel_decode_rs;
+    wire [((STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS) *(_BITWIDTH_IS_INST_REGS) )-1:0]         dec_nel_decode_rs;
     wire [(STRUCT_DECODE_NEW_INST *(IS_INST_IMM) )-1:0]                                       dec_nel_decode_imm;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_jump;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_jump_reg;
@@ -181,9 +187,10 @@ module eulsukdo_scheduler #(
         .reset_n                        (reset_n),
 
         // Instruction Input (IM)
-        .i_im_recv_pc_valid             (im_nel_recv_pc_valid),
-        .o_im_recv_pc_get               (im_nel_recv_pc_get),
+        .i_im_recv_pc_valid             (im_nel_recv_inst_valid),
+        .o_im_recv_pc_get               (im_nel_recv_inst_get),
         .i_im_recv_pc                   (im_nel_recv_pc),
+        .i_im_recv_inst                 (im_nel_recv_inst),
 
         // Allocate Physical Registers Input (PRM)
         .i_prm_phyreg_valid             (prm_nel_phyreg_valid),
@@ -346,9 +353,10 @@ module eulsukdo_scheduler #(
     assign o_im_req_pc                = fcl_im_req_pc;
 
     // Instruction Receive Input
-    assign im_nel_recv_pc_valid       = i_im_recv_pc_valid;
-    assign o_im_recv_pc_get           = im_nel_recv_pc_get;
+    assign im_nel_recv_inst_valid     = i_im_recv_inst_valid;
+    assign o_im_recv_inst_get         = im_nel_recv_inst_get;
     assign im_nel_recv_pc             = i_im_recv_pc;
+    assign im_nel_recv_inst           = i_im_recv_inst;
 
     // Decoder Info Receive
     assign dec_nel_decode_exception   = i_nel_decode_exception;

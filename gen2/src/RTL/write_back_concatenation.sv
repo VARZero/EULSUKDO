@@ -86,7 +86,7 @@ module write_back_concatenation #(
 
     genvar ex_core_num;
     generate
-        for (ex_core_num = 0; ex_core_num < STRUCT_EX_CORES; ex_core_num = ex_core_num + 1) begin
+        for (ex_core_num = 0; ex_core_num < STRUCT_EX_OUT_RESULT_SUM; ex_core_num = ex_core_num + 1) begin
             // Done PCs
             assign o_fcl_done_pc_valid[ex_core_num] = i_ex_result_valid[ex_core_num];
             assign o_fcl_done_pc_data [( _BITWIDTH_STRUCT_EX_DONE_PC *ex_core_num ) +: _BITWIDTH_STRUCT_EX_DONE_PC] 

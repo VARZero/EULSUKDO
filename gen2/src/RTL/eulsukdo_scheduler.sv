@@ -21,7 +21,7 @@ module eulsukdo_scheduler #(
     parameter int STRUCT_EX_OUT_RESULT[STRUCT_EX_CORES] = {1, 1, 1, 1, 1},
     parameter int STRUCT_EX_OUT_RESULT_SUM              = 5,
     parameter int STRUCT_EX_BRANCH                      = 1,
-    parameter int STRUCT_PRM_ENTRY_UPDATE               = 5,
+    parameter int STRUCT_PRM_ENTRY_UPDATE                          = 5,
     parameter int STRUCT_PRM_ENTRY_BUFFER               = 4,
     parameter int STRUCT_UNALLOCATE_PHYREG              = 4,
     parameter int STRUCT_FLOW_WINDOWS                   = 8,
@@ -146,8 +146,8 @@ module eulsukdo_scheduler #(
     wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_JUMP_BRANCH_INFO) )-1:0]                       ex_wbc_result_branch_data;
     
     // EX -> WBC : Done EX Phyreg Result
-    wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                                       ex_wbc_result_phyreg_valid;
-    wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                        ex_wbc_result_phyreg_data;
+    wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                                       ex_wbc_result_valid;
+    wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_EX_RESULT_WIDTH) )-1:0]                       ex_wbc_result_data;
     
     // WBC -> FCL : Branch Result
     wire [STRUCT_EX_BRANCH-1:0]                                                               wbc_fcl_branch_valid;
@@ -273,9 +273,9 @@ module eulsukdo_scheduler #(
         .i_ex_result_branch_valid       (ex_wbc_result_branch_valid),
         .i_ex_result_branch_data        (ex_wbc_result_branch_data),
 
-        // Result phyreg EX Input (EX)
-        .i_ex_result_phyreg_valid       (ex_wbc_result_phyreg_valid),
-        .i_ex_result_phyreg_data        (ex_wbc_result_phyreg_data),
+        // Result EX Input (EX)
+        .i_ex_result_valid              (ex_wbc_result_valid),
+        .i_ex_result_data               (ex_wbc_result_data),
 
         // Branch Result Output (FCL)
         .o_fcl_branch_valid             (wbc_fcl_branch_valid),
@@ -376,8 +376,8 @@ module eulsukdo_scheduler #(
     assign o_rs_entry_data            = rs_ex_wait_inst_data;
 
     // EX Result Receive (EX Out)
-    assign ex_wbc_result_phyreg_valid = i_wbc_result_valid;
-    assign ex_wbc_result_phyreg_data  = i_wbc_result_data;
+    assign ex_wbc_result_valid        = i_wbc_result_valid;
+    assign ex_wbc_result_data         = i_wbc_result_data;
 
 // END   ===[ INPUT, OUTPUT AREA ]===   END //
 

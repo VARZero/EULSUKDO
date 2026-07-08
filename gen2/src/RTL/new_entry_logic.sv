@@ -63,10 +63,9 @@ module new_entry_logic #(
     input wire                                                                               reset_n,
 
     // Instruction Input (IM)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_recv_pc_valid,
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_recv_pc_get,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_recv_inst_valid,
+    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_recv_inst_get,
     input  wire [(STRUCT_DECODE_NEW_INST * _BITWIDTH_FLOW_WINDOWS_PC)-1:0]                   i_im_recv_pc,
-    input  wire [(STRUCT_DECODE_NEW_INST * IS_INST_BITWIDTH)-1:0]                            i_im_recv_pc,
 
     // Allocate Physical Registers Input (PRM)
     input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_prm_phyreg_valid,

@@ -99,7 +99,6 @@ module eulsukdo_scheduler #(
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         im_nel_recv_inst_valid;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         im_nel_recv_inst_get;
     wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_FLOW_WINDOWS_PC) )-1:0]                         im_nel_recv_pc;
-    wire [(STRUCT_DECODE_NEW_INST *(IS_INST_BITWIDTH) )-1:0]                                  im_nel_recv_inst;
 
     // PRM -> NEL : Allocatable Physical Registers
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         prm_nel_phyreg_valid;
@@ -187,10 +186,9 @@ module eulsukdo_scheduler #(
         .reset_n                        (reset_n),
 
         // Instruction Input (IM)
-        .i_im_recv_pc_valid             (im_nel_recv_inst_valid),
-        .o_im_recv_pc_get               (im_nel_recv_inst_get),
+        .i_im_recv_inst_valid           (im_nel_recv_inst_valid),
+        .o_im_recv_inst_get             (im_nel_recv_inst_get),
         .i_im_recv_pc                   (im_nel_recv_pc),
-        .i_im_recv_inst                 (im_nel_recv_inst),
 
         // Allocate Physical Registers Input (PRM)
         .i_prm_phyreg_valid             (prm_nel_phyreg_valid),

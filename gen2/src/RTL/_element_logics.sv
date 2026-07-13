@@ -75,4 +75,119 @@ module regfile #(
 
 endmodule
 
+module gather_demux #(
+    parameter  int DATA_WIDTH  = 32,
+    parameter  int DEMUXING    = 8,
 
+    localparam int DEMUX_WIDTH = $clog2(DEMUXING),
+    localparam int DEMUX_OUT   = DATA_WIDTH*DEMUXING
+) (
+    input  logic [DATA_WIDTH-1:0]  i_data,
+    input  logic [DEMUX_WIDTH-1:0] i_sel,
+    output logic [DEMUX_OUT-1:0]   o_demux
+);
+    always_comb begin
+        o_demux = 0;
+
+        for (int demux_pos = 0; demux_pos < DEMUXING; demux_pos = demux_pos+1) begin
+            if (demux_pos == i_sel) begin
+                o_demux[(DATA_WIDTH*demux_pos) +: DATA_WIDTH] = i_data;
+            end
+        end
+    end
+
+endmodule
+
+module gather_position #(
+    parameter  int ENTRIES               = 8,
+
+    localparam int ENTRIES_WIDTH         = $clog2(ENTRIES),
+    localparam int GATHER_POSITION_WIDTH = ENTRIES*ENTRIES_WIDTH
+) (
+    input  logic [ENTRIES-1:0]               i_valid,
+    output logic [GATHER_POSITION_WIDTH-1:0] o_positions,
+    output logic [ENTRIES-1:0]               o_valid
+);
+    function automatic logic [GATHER_POSITION_WIDTH-1:0] get_positions (
+        input  logic [ENTRIES-1:0] in_valid
+    );
+        logic [GATHER_POSITION_WIDTH-1:0] out_positions;
+        logic [ENTRIES_WIDTH-1:0]         now_position;
+
+        out_positions = 0;
+        now_position = 0;
+
+        for (int check_entry = 0; check_entry < ENTRIES; check_entry = check_entry+1) begin
+            if ( in_valid[check_entry] ) begin
+                out_positions[(ENTRIES_WIDTH*check_entry) +: ENTRIES_WIDTH] = now_position;
+                now_position = now_position+1;
+            end
+        end
+
+        return out_positions;
+    endfunction
+
+    function automatic logic [ENTRIES-1:0] gather_valid (
+        input  logic [ENTRIES-1:0] in_valid
+    );
+        logic [ENTRIES-1:0]       out_valid;
+        logic [ENTRIES_WIDTH-1:0] now_position;
+
+        out_valid    = 0;
+        now_position = 0;
+
+        for (int check_valid = 0; check_valid < ENTRIES; check_valid = check_valid+1) begin
+            if ( in_valid[check_valid] ) begin
+                out_valid[now_position] = 1'b1;
+                now_position = now_position+1;
+            end
+        end
+
+        return out_valid;
+    endfunction
+
+    assign o_positions = get_positions(i_valid);
+    assign o_valid     = gather_valid (i_valid);
+
+endmodule
+
+module valid_gather #(
+    parameter  int DATA_WIDTH  = 32,
+    parameter  int ENTRIES     = 8,
+
+    localparam int INOUT_WIDTH = DATA_WIDTH*ENTRIES
+) (
+    input  logic [INOUT_WIDTH-1:0] i_data,
+    input  logic [ENTRIES-1:0]     i_valid,
+    output logic [ENTRIES-1:0]     o_valid,
+    output logic [INOUT_WIDTH-1:0] o_data
+);
+
+    localparam int ENTRIES_WIDTH         = $clog2(ENTRIES);
+    localparam int GATHER_POSITION_WIDTH = ENTRIES*ENTRIES_WIDTH;
+
+    logic [GATHER_POSITION_WIDTH-1:0] positions_list;
+
+    gather_position #(
+        .ENTRIES (ENTRIES)
+    ) U_GATHER_POSITION (
+        .i_valid     (i_valid),
+        .o_positions (positions_list),
+        .o_valid     (o_valid)
+    );
+
+    genvar position;
+    generate
+        for (position = 0; position < ENTRIES; position = position+1) begin
+            gather_demux #(
+                .DATA_WIDTH (DATA_WIDTH),
+                .DEMUXING   (ENTRIES)
+            ) U_GATHER_DEMUX (
+                .i_data (i_data),
+                .i_sel  (),
+                .o_demux()
+            );
+        end
+    endgenerate
+
+endmodule

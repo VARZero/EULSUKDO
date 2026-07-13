@@ -1,10 +1,11 @@
 `timescale 1ns/1ps
 
 module regfile #(
-    parameter  int DATA_WIDTH       = 32,
-    parameter  int ENTRIES          = 16,
-    parameter  int READ_CHANNEL     = 2,
-    parameter  int WRITE_CHANNEL    = 2,
+    parameter  int                    DATA_WIDTH    = 32,
+    parameter  int                    ENTRIES       = 16,
+    parameter  int                    READ_CHANNEL  = 2,
+    parameter  int                    WRITE_CHANNEL = 2,
+    parameter  logic [DATA_WIDTH-1:0] INITIAL_VALUE = 0,
 
     localparam int ADDR_ENTRY       = $clog2(ENTRIES),
 
@@ -53,7 +54,7 @@ module regfile #(
     always_ff @(posedge clk or negedge reset_n) begin
         if (~reset_n) begin
             for (int reg_init = 0; reg_init < ENTRIES; reg_init = reg_init + 1) begin
-                reg_mem[reg_init] <= 0;
+                reg_mem[reg_init] <= 0INITIAL_VALUE;
             end
         end
         else begin

@@ -163,11 +163,13 @@ module valid_gather #(
     output logic [ENTRIES-1:0]     o_valid,
     output logic [INOUT_WIDTH-1:0] o_data
 );
-
     localparam int ENTRIES_WIDTH         = $clog2(ENTRIES);
     localparam int GATHER_POSITION_WIDTH = ENTRIES*ENTRIES_WIDTH;
 
     logic [GATHER_POSITION_WIDTH-1:0] positions_list;
+    logic [ENTRIES_WIDTH-1:0] position_array [0:ENTRIES-1];
+
+    logic [DATA_WIDTH-1:0] out_array [0:ENTRIES-1];
 
     gather_position #(
         .ENTRIES (ENTRIES)
@@ -180,13 +182,18 @@ module valid_gather #(
     genvar position;
     generate
         for (position = 0; position < ENTRIES; position = position+1) begin
+            assign position_array[position] = positions_list[(ENTRIES_WIDTH*position) +: ENTRIES_WIDTH];
+            assign o_data[(DATA_WIDTH*position) +: DATA_WIDTH]
+        end
+
+        for (position = 0; position < ENTRIES; position = position+1) begin
             gather_demux #(
                 .DATA_WIDTH (DATA_WIDTH),
                 .DEMUXING   (ENTRIES)
             ) U_GATHER_DEMUX (
                 .i_data (i_data),
-                .i_sel  (),
-                .o_demux()
+                .i_sel  (position_array[position]),
+                .o_demux(out_array[position])
             );
         end
     endgenerate

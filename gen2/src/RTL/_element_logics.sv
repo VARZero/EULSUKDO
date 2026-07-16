@@ -54,7 +54,7 @@ module regfile #(
     always_ff @(posedge clk or negedge reset_n) begin
         if (~reset_n) begin
             for (int reg_init = 0; reg_init < ENTRIES; reg_init = reg_init + 1) begin
-                reg_mem[reg_init] <= 0INITIAL_VALUE;
+                reg_mem[reg_init] <= INITIAL_VALUE;
             end
         end
         else begin

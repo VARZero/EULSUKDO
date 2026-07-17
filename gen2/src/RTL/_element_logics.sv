@@ -202,9 +202,57 @@ module valid_gather #(
 
 endmodule
 
+module fifo_control #(
+    parameter  int FIFO_DEPTH  = 32,
+
+    localparam int WIDHT_DEPTH = $clog2(FIFO_DEPTH)
+) (
+    input  logic clk,
+    input  logic reset_n,
+
+    input  logic i_flush,
+    input  logic i_push,
+    input  logic i_pop,
+    output logic o_empty,
+    output logic o_full,
+
+    output logic [WIDHT_DEPTH-1:0] o_push_addr,
+    output logic [WIDHT_DEPTH-1:0] o_pop_addr
+);
+    logic [WIDHT_DEPTH-1:0] wptr, wptr_next;
+    logic [WIDHT_DEPTH-1:0] rptr, rptr_next;
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (~reset_n || i_flush) begin
+            wptr <= 0;
+            rptr <= 0;
+        end
+        else begin
+            wptr <= wptr_next;
+            rptr <= rptr_next;
+        end
+    end
+
+    always_comb begin
+        case({i_pop, i_push})
+            2'b00: begin // No Pop, No Push
+                wptr_next <= wptr;
+                rptr_next <= rptr;
+            end
+            2'b10: begin // Pop, No Push
+                wptr_next <= wptr;
+                rptr_next <= rptr;
+            end
+        endcase
+    end
+
+endmodule
+
 module fifo_regfile #(
-    parameter  int DATA_WIDTH = 32,
-    parameter  int FIFO_DEPTH = 32
+    parameter  int DATA_WIDTH  = 32,
+    parameter  int FIFO_DEPTH  = 32,
+
+    localparam int WIDHT_DEPTH = $clog2(FIFO_DEPTH)
 ) (
     input  logic clk,
     input  logic reset_n,
@@ -220,5 +268,6 @@ module fifo_regfile #(
     output logic                  o_empty,
     output logic                  o_full
 );
+
 
 endmodule

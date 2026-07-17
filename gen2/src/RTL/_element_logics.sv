@@ -17,6 +17,8 @@ module regfile #(
     input  logic clk,
     input  logic reset_n,
     
+    input  logic                        i_flush,
+    
     input  logic [READ_ADDR_WIDTH-1:0]  i_read_addr,
     output logic [READ_DATA_WIDTH-1:0]  o_read_data,
 
@@ -52,7 +54,7 @@ module regfile #(
     logic [DATA_WIDTH-1:0] reg_mem [0:ENTRIES-1];
 
     always_ff @(posedge clk or negedge reset_n) begin
-        if (~reset_n) begin
+        if (~reset_n || i_flush) begin
             for (int reg_init = 0; reg_init < ENTRIES; reg_init = reg_init + 1) begin
                 reg_mem[reg_init] <= INITIAL_VALUE;
             end
@@ -197,5 +199,26 @@ module valid_gather #(
             );
         end
     endgenerate
+
+endmodule
+
+module fifo_regfile #(
+    parameter  int DATA_WIDTH = 32,
+    parameter  int FIFO_DEPTH = 32
+) (
+    input  logic clk,
+    input  logic reset_n,
+
+    input  logic i_flush,
+
+    input  logic                  i_push,
+    input  logic [DATA_WIDTH-1:0] i_push_data,
+
+    input  logic                  i_pop,
+    output logic [DATA_WIDTH-1:0] o_pop_data,
+
+    output logic                  o_empty,
+    output logic                  o_full
+);
 
 endmodule

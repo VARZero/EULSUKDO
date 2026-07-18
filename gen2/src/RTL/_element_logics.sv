@@ -169,7 +169,7 @@ module valid_gather #(
     logic [GATHER_POSITION_WIDTH-1:0] positions_list;
     logic [ENTRIES_WIDTH-1:0] position_array [0:ENTRIES-1];
 
-    logic [DATA_WIDTH-1:0] out_array [0:ENTRIES-1];
+    logic [INOUT_WIDTH-1:0] out_array [0:ENTRIES-1];
 
     gather_position #(
         .ENTRIES (ENTRIES)
@@ -183,7 +183,6 @@ module valid_gather #(
     generate
         for (position = 0; position < ENTRIES; position = position+1) begin
             assign position_array[position] = positions_list[(ENTRIES_WIDTH*position) +: ENTRIES_WIDTH];
-            assign o_data[(DATA_WIDTH*position) +: DATA_WIDTH] 
         end
 
         for (position = 0; position < ENTRIES; position = position+1) begin
@@ -191,12 +190,20 @@ module valid_gather #(
                 .DATA_WIDTH (DATA_WIDTH),
                 .DEMUXING   (ENTRIES)
             ) U_GATHER_DEMUX (
-                .i_data (i_data),
+                .i_data (i_data[(DATA_WIDTH*position) +: DATA_WIDTH]),
                 .i_sel  (position_array[position]),
                 .o_demux(out_array[position])
             );
         end
+    
     endgenerate
+
+    always_comb begin
+        o_data = 0;
+        for (int pos = 0; pos < ENTRIES; pos = pos+1) begin
+            o_data |= (i_valid[pos])? out_array[pos] : 0;
+        end
+    end
 
 endmodule
 
@@ -220,6 +227,9 @@ module fifo_control #(
     logic [WIDHT_DEPTH-1:0] wptr, wptr_next;
     logic [WIDHT_DEPTH-1:0] rptr, rptr_next;
 
+    logic empty, empty_next;
+    logic full,  full_next;
+
     always_ff @(posedge clk or negedge reset_n) begin
         if (~reset_n || i_flush) begin
             wptr <= 0;
@@ -239,6 +249,20 @@ module fifo_control #(
             end
             2'b10: begin // Pop, No Push
                 wptr_next <= wptr;
+                if (wptr == rptr) begin // Now Empty or Full
+                    rptr_next <= rptr;
+                end
+                else begin
+                    rptr_next <= rptr+1;
+                end
+            end
+            2'b10: begin // No Pop, Push
+                if (wptr == rptr) begin // Now Empty or Full
+                    wptr_next <= wptr;
+                end
+                else begin
+                    wptr_next <= wptr+1;
+                end
                 rptr_next <= rptr;
             end
         endcase

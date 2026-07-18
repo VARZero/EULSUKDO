@@ -60,11 +60,9 @@ module regfile #(
             end
         end
         else begin
-            for (int reg_write = 0; reg_write < ENTRIES; reg_write = reg_write + 1) begin
-                for (int reg_update = 0; reg_update < WRITE_CHANNEL; reg_update = reg_update + 1) begin
-                    if ( we[reg_update] && (waddr[reg_update] == reg_write) ) begin
-                        reg_mem[ reg_write ] <= wdata[reg_update];
-                    end
+            for (int reg_update = 0; reg_update < WRITE_CHANNEL; reg_update = reg_update + 1) begin
+                if ( we[reg_update] ) begin
+                    reg_mem[ waddr[reg_update] ] <= wdata[reg_update];
                 end
             end
         end
@@ -185,7 +183,7 @@ module valid_gather #(
     generate
         for (position = 0; position < ENTRIES; position = position+1) begin
             assign position_array[position] = positions_list[(ENTRIES_WIDTH*position) +: ENTRIES_WIDTH];
-            assign o_data[(DATA_WIDTH*position) +: DATA_WIDTH]
+            assign o_data[(DATA_WIDTH*position) +: DATA_WIDTH] 
         end
 
         for (position = 0; position < ENTRIES; position = position+1) begin

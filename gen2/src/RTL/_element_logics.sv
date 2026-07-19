@@ -210,7 +210,7 @@ endmodule
 module fifo_control #(
     parameter  int FIFO_DEPTH  = 32,
 
-    localparam int WIDHT_DEPTH = $clog2(FIFO_DEPTH)
+    localparam int WIDTH_DEPTH = $clog2(FIFO_DEPTH)
 ) (
     input  logic clk,
     input  logic reset_n,
@@ -221,11 +221,13 @@ module fifo_control #(
     output logic o_empty,
     output logic o_full,
 
-    output logic [WIDHT_DEPTH-1:0] o_push_addr,
-    output logic [WIDHT_DEPTH-1:0] o_pop_addr
+    output logic [WIDTH_DEPTH-1:0] o_push_addr,
+    output logic [WIDTH_DEPTH-1:0] o_pop_addr,
+
+    output logic o_we
 );
-    logic [WIDHT_DEPTH-1:0] wptr, wptr_next;
-    logic [WIDHT_DEPTH-1:0] rptr, rptr_next;
+    logic [WIDTH_DEPTH-1:0] wptr, wptr_next;
+    logic [WIDTH_DEPTH-1:0] rptr, rptr_next;
 
     logic empty, empty_next;
     logic full,  full_next;
@@ -248,33 +250,95 @@ module fifo_control #(
     always_comb begin
         case({i_pop, i_push})
             2'b00: begin // No Pop, No Push
-                wptr_next  <= wptr;
-                rptr_next  <= rptr;
-                empty_next <= empty;
-                full_next  <= full;
+                wptr_next  = wptr;
+                rptr_next  = rptr;
+                empty_next = empty;
+                full_next  = full;
+                
+                // Output
+                o_we       = 1'b0;
             end
             2'b10: begin // Pop, No Push
-                wptr_next <= wptr;
-                if (wptr == rptr) begin // Now Empty or Full
-                    rptr_next <= rptr;
+                wptr_next = wptr;
+                if (empty) begin
+                    rptr_next  = rptr;
+                    empty_next = 1'b1;
+                    full_next  = 1'b0;
                 end
                 else begin
-                    rptr_next <= rptr+1;
+                    rptr_next  = rptr+1;
+                    empty_next = ( wptr == (rptr+1) );
+                    full_next  = 1'b0;
                 end
-                empty_next <= empty;
-                full_next  <= full;
+
+                // Output
+                o_we       = 1'b0;
             end
-            2'b10: begin // No Pop, Push
-                if (wptr == rptr) begin // Now Empty or Full
-                    wptr_next <= wptr;
+            2'b01: begin // No Pop, Push
+                if (full) begin
+                    wptr_next  = wptr;
+                    empty_next = 1'b0;
+                    full_next  = 1'b1;
+                        
+                    // Output
+                    o_we       = 1'b0;
                 end
                 else begin
-                    wptr_next <= wptr+1;
+                    wptr_next  = wptr+1;
+                    empty_next = 1'b0;
+                    full_next  = ( rptr == (wptr+1) );
+                        
+                    // Output
+                    o_we       = 1'b1;
                 end
-                rptr_next <= rptr;
+                rptr_next = rptr;
+            end
+            2'b11: begin // Pop, Push
+                if (empty) begin
+                    wptr_next  = wptr+1;
+                    rptr_next  = rptr;
+                    empty_next = 1'b0;
+                    full_next  = 1'b0;
+                        
+                    // Output
+                    o_we       = 1'b1;
+                end
+                else if (full) begin
+                    wptr_next  = wptr+1;
+                    rptr_next  = rptr+1;
+                    empty_next = 1'b0;
+                    full_next  = 1'b1;
+                        
+                    // Output
+                    o_we       = 1'b1;
+                end
+                else begin
+                    wptr_next  = wptr+1;
+                    rptr_next  = rptr+1;
+                    empty_next = 1'b0;
+                    full_next  = 1'b0;
+                        
+                    // Output
+                    o_we       = 1'b1;
+                end
+            end
+            default: begin
+                wptr_next  = 0;
+                rptr_next  = 0;
+                empty_next = 1'b1;
+                full_next  = 1'b0;
+
+                // Output
+                o_we       = 1'b0;
             end
         endcase
     end
+
+    assign o_empty = empty;
+    assign o_full  = full;
+
+    assign o_push_addr = wptr;
+    assign o_pop_addr  = rptr;
 
 endmodule
 
@@ -282,7 +346,7 @@ module fifo_regfile #(
     parameter  int DATA_WIDTH  = 32,
     parameter  int FIFO_DEPTH  = 32,
 
-    localparam int WIDHT_DEPTH = $clog2(FIFO_DEPTH)
+    localparam int WIDTH_DEPTH = $clog2(FIFO_DEPTH)
 ) (
     input  logic clk,
     input  logic reset_n,

@@ -232,20 +232,26 @@ module fifo_control #(
 
     always_ff @(posedge clk or negedge reset_n) begin
         if (~reset_n || i_flush) begin
-            wptr <= 0;
-            rptr <= 0;
+            wptr  <= 0;
+            rptr  <= 0;
+            empty <= 1'b1;
+            full  <= 1'b0;
         end
         else begin
-            wptr <= wptr_next;
-            rptr <= rptr_next;
+            wptr  <= wptr_next;
+            rptr  <= rptr_next;
+            empty <= empty_next;
+            full  <= full_next;
         end
     end
 
     always_comb begin
         case({i_pop, i_push})
             2'b00: begin // No Pop, No Push
-                wptr_next <= wptr;
-                rptr_next <= rptr;
+                wptr_next  <= wptr;
+                rptr_next  <= rptr;
+                empty_next <= empty;
+                full_next  <= full;
             end
             2'b10: begin // Pop, No Push
                 wptr_next <= wptr;
@@ -255,6 +261,8 @@ module fifo_control #(
                 else begin
                     rptr_next <= rptr+1;
                 end
+                empty_next <= empty;
+                full_next  <= full;
             end
             2'b10: begin // No Pop, Push
                 if (wptr == rptr) begin // Now Empty or Full

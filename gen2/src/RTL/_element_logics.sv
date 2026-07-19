@@ -76,6 +76,38 @@ module regfile #(
 
 endmodule
 
+module bram_custom #(
+    parameter  int                    DATA_WIDTH    = 32,
+    parameter  int                    ENTRIES       = 16,
+
+    localparam int ADDR_ENTRY       = $clog2(ENTRIES),
+
+    localparam int READ_ADDR_WIDTH  = ADDR_ENTRY,
+    localparam int READ_DATA_WIDTH  = DATA_WIDTH,
+    localparam int WRITE_ADDR_WIDTH = ADDR_ENTRY,
+    localparam int WRITE_DATA_WIDTH = DATA_WIDTH
+) (
+    input  logic clk,
+    
+    input  logic [READ_ADDR_WIDTH-1:0]  i_read_addr,
+    output logic [READ_DATA_WIDTH-1:0]  o_read_data,
+
+    input  logic [WRITE_ADDR_WIDTH-1:0] i_write_addr,
+    input  logic                        i_write_en,
+    input  logic [WRITE_DATA_WIDTH-1:0] i_write_data
+);
+    logic [DATA_WIDTH-1:0] mem [0:ENTRIES-1];
+
+    always_ff @(posedge clk) begin
+        if (i_write_en) begin
+            mem[i_write_addr] <= i_write_data;
+        end
+
+        o_read_data <= mem[i_read_addr];
+    end
+
+endmodule
+
 module gather_demux #(
     parameter  int DATA_WIDTH  = 32,
     parameter  int DEMUXING    = 8,
@@ -227,10 +259,15 @@ module fifo_control #(
     output logic o_we
 );
     logic [WIDTH_DEPTH-1:0] wptr, wptr_next;
+    logic [WIDTH_DEPTH-1:0] wptr_inc;
     logic [WIDTH_DEPTH-1:0] rptr, rptr_next;
+    logic [WIDTH_DEPTH-1:0] rptr_inc;
 
     logic empty, empty_next;
     logic full,  full_next;
+
+    assign wptr_inc = wptr+1;
+    assign rptr_inc = rptr+1;
 
     always_ff @(posedge clk or negedge reset_n) begin
         if (~reset_n || i_flush) begin
@@ -266,8 +303,8 @@ module fifo_control #(
                     full_next  = 1'b0;
                 end
                 else begin
-                    rptr_next  = rptr+1;
-                    empty_next = ( wptr == (rptr+1) );
+                    rptr_next  = rptr_inc;
+                    empty_next = ( wptr == rptr_inc );
                     full_next  = 1'b0;
                 end
 
@@ -284,9 +321,9 @@ module fifo_control #(
                     o_we       = 1'b0;
                 end
                 else begin
-                    wptr_next  = wptr+1;
+                    wptr_next  = wptr_inc;
                     empty_next = 1'b0;
-                    full_next  = ( rptr == (wptr+1) );
+                    full_next  = ( rptr == wptr_inc );
                         
                     // Output
                     o_we       = 1'b1;
@@ -295,7 +332,7 @@ module fifo_control #(
             end
             2'b11: begin // Pop, Push
                 if (empty) begin
-                    wptr_next  = wptr+1;
+                    wptr_next  = wptr_inc;
                     rptr_next  = rptr;
                     empty_next = 1'b0;
                     full_next  = 1'b0;
@@ -304,8 +341,8 @@ module fifo_control #(
                     o_we       = 1'b1;
                 end
                 else if (full) begin
-                    wptr_next  = wptr+1;
-                    rptr_next  = rptr+1;
+                    wptr_next  = wptr_inc;
+                    rptr_next  = rptr_inc;
                     empty_next = 1'b0;
                     full_next  = 1'b1;
                         
@@ -313,8 +350,8 @@ module fifo_control #(
                     o_we       = 1'b1;
                 end
                 else begin
-                    wptr_next  = wptr+1;
-                    rptr_next  = rptr+1;
+                    wptr_next  = wptr_inc;
+                    rptr_next  = rptr_inc;
                     empty_next = 1'b0;
                     full_next  = 1'b0;
                         
@@ -362,6 +399,115 @@ module fifo_regfile #(
     output logic                  o_empty,
     output logic                  o_full
 );
+    logic flush, push, pop, empty, full, we;
+    logic [WIDTH_DEPTH-1:0] push_addr, pop_addr;
+    logic [DATA_WIDTH-1:0]  push_data, pop_data;
 
+    assign flush     = i_flush;
+    assign push      = i_push;
+    assign pop       = i_pop;
+
+    assign push_data = i_push_data;
+
+    fifo_control #(
+        .FIFO_DEPTH  (FIFO_DEPTH)
+    ) U_FIFO_CTRL (
+        .clk         (clk),
+        .reset_n     (reset_n),
+        .i_flush     (flush),
+        .i_push      (push),
+        .i_pop       (pop),
+        .o_empty     (empty),
+        .o_full      (full),
+        .o_push_addr (push_addr),
+        .o_pop_addr  (pop_addr),
+        .o_we        (we)
+    );
+
+    regfile #(
+        .DATA_WIDTH    (DATA_WIDTH),
+        .ENTRIES       (FIFO_DEPTH),
+        .READ_CHANNEL  (1),
+        .WRITE_CHANNEL (1),
+        .INITIAL_VALUE (0)
+    ) U_FIFO_REGFILE (
+        .clk           (clk),
+        .reset_n       (reset_n),
+        .i_flush       (flush),
+        .i_read_addr   (pop_addr),
+        .o_read_data   (pop_data),
+        .i_write_addr  (push_addr),
+        .i_write_en    (we),
+        .i_write_data  (push_data)
+    );
+
+    assign o_empty    = empty;
+    assign o_full     = full;
+
+    assign o_pop_data = pop_data;
+
+endmodule
+
+module fifo_bram #(
+    parameter  int DATA_WIDTH  = 32,
+    parameter  int FIFO_DEPTH  = 32,
+
+    localparam int WIDTH_DEPTH = $clog2(FIFO_DEPTH)
+) (
+    input  logic clk,
+    input  logic reset_n,
+
+    input  logic i_flush,
+
+    input  logic                  i_push,
+    input  logic [DATA_WIDTH-1:0] i_push_data,
+
+    input  logic                  i_pop,
+    output logic [DATA_WIDTH-1:0] o_pop_data,
+
+    output logic                  o_empty,
+    output logic                  o_full
+);
+    logic flush, push, pop, empty, full, we;
+    logic [WIDTH_DEPTH-1:0] push_addr, pop_addr;
+    logic [DATA_WIDTH-1:0]  push_data, pop_data;
+
+    assign flush     = i_flush;
+    assign push      = i_push;
+    assign pop       = i_pop;
+
+    assign push_data = i_push_data;
+
+    fifo_control #(
+        .FIFO_DEPTH  (FIFO_DEPTH)
+    ) U_FIFO_CTRL (
+        .clk         (clk),
+        .reset_n     (reset_n),
+        .i_flush     (flush),
+        .i_push      (push),
+        .i_pop       (pop),
+        .o_empty     (empty),
+        .o_full      (full),
+        .o_push_addr (push_addr),
+        .o_pop_addr  (pop_addr),
+        .o_we        (we)
+    );
+
+    bram_custom #(
+        .DATA_WIDTH    (DATA_WIDTH),
+        .ENTRIES       (FIFO_DEPTH)
+    ) U_FIFO_BRAM (
+        .clk           (clk),
+        .i_read_addr   (pop_addr),
+        .o_read_data   (pop_data),
+        .i_write_addr  (push_addr),
+        .i_write_en    (we),
+        .i_write_data  (push_data)
+    );
+
+    assign o_empty    = empty;
+    assign o_full     = full;
+
+    assign o_pop_data = pop_data;
 
 endmodule

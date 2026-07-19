@@ -54,7 +54,12 @@ module regfile #(
     logic [DATA_WIDTH-1:0] reg_mem [0:ENTRIES-1];
 
     always_ff @(posedge clk or negedge reset_n) begin
-        if (~reset_n || i_flush) begin
+        if (~reset_n) begin
+            for (int reg_init = 0; reg_init < ENTRIES; reg_init = reg_init + 1) begin
+                reg_mem[reg_init] <= INITIAL_VALUE;
+            end
+        end
+        else if (i_flush) begin
             for (int reg_init = 0; reg_init < ENTRIES; reg_init = reg_init + 1) begin
                 reg_mem[reg_init] <= INITIAL_VALUE;
             end
@@ -241,6 +246,7 @@ endmodule
 
 module fifo_control #(
     parameter  int FIFO_DEPTH  = 32,
+    parameter  int READ_DELAY  = 0, // 0 is False, 1 is True
 
     localparam int WIDTH_DEPTH = $clog2(FIFO_DEPTH)
 ) (
@@ -270,7 +276,13 @@ module fifo_control #(
     assign rptr_inc = rptr+1;
 
     always_ff @(posedge clk or negedge reset_n) begin
-        if (~reset_n || i_flush) begin
+        if (~reset_n) begin
+            wptr  <= 0;
+            rptr  <= 0;
+            empty <= 1'b1;
+            full  <= 1'b0;
+        end
+        else if (i_flush) begin
             wptr  <= 0;
             rptr  <= 0;
             empty <= 1'b1;
@@ -375,7 +387,14 @@ module fifo_control #(
     assign o_full  = full;
 
     assign o_push_addr = wptr;
-    assign o_pop_addr  = rptr;
+    generate
+        if (READ_DELAY == 0) begin
+            assign o_pop_addr = rptr;
+        end
+        else if (READ_DELAY == 1) begin
+            assign o_pop_addr = rptr_next;
+        end
+    endgenerate
 
 endmodule
 
@@ -410,7 +429,8 @@ module fifo_regfile #(
     assign push_data = i_push_data;
 
     fifo_control #(
-        .FIFO_DEPTH  (FIFO_DEPTH)
+        .FIFO_DEPTH  (FIFO_DEPTH),
+        .READ_DELAY  (0)
     ) U_FIFO_CTRL (
         .clk         (clk),
         .reset_n     (reset_n),
@@ -479,7 +499,8 @@ module fifo_bram #(
     assign push_data = i_push_data;
 
     fifo_control #(
-        .FIFO_DEPTH  (FIFO_DEPTH)
+        .FIFO_DEPTH  (FIFO_DEPTH),
+        .READ_DELAY  (1)
     ) U_FIFO_CTRL (
         .clk         (clk),
         .reset_n     (reset_n),

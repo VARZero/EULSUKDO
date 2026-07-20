@@ -525,6 +525,10 @@ module fifo_bram #(
                     push_empty_active <= 1'b1;
                     push_empty_buffer <= i_push_data;
                 end
+                else if ((push_addr == pop_addr) & i_push) begin
+                    push_empty_active <= 1'b1;
+                    push_empty_buffer <= i_push_data;
+                end
             end
         end
     end
@@ -563,3 +567,5 @@ module fifo_bram #(
     assign o_pop_data = (push_empty_active)? push_empty_buffer : pop_data;
 
 endmodule
+
+

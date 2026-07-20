@@ -492,11 +492,42 @@ module fifo_bram #(
     logic [WIDTH_DEPTH-1:0] push_addr, pop_addr;
     logic [DATA_WIDTH-1:0]  push_data, pop_data;
 
+    logic                  push_empty_active; 
+    logic [DATA_WIDTH-1:0] push_empty_buffer;
+
     assign flush     = i_flush;
     assign push      = i_push;
     assign pop       = i_pop;
 
     assign push_data = i_push_data;
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (~reset_n) begin
+            push_empty_active <= 1'b0;
+            push_empty_buffer <= 0;
+        end
+        else if (i_flush) begin
+            push_empty_active <= 1'b0;
+            push_empty_buffer <= 0;
+        end
+        else begin
+            if (push_empty_active) begin
+                if (i_push & i_pop) begin
+                    push_empty_active <= 1'b1;
+                    push_empty_buffer <= i_push_data;
+                end
+                else begin
+                    push_empty_active <= 1'b0;
+                end
+            end
+            else begin
+                if (o_empty & i_push) begin
+                    push_empty_active <= 1'b1;
+                    push_empty_buffer <= i_push_data;
+                end
+            end
+        end
+    end
 
     fifo_control #(
         .FIFO_DEPTH  (FIFO_DEPTH),
@@ -529,6 +560,6 @@ module fifo_bram #(
     assign o_empty    = empty;
     assign o_full     = full;
 
-    assign o_pop_data = pop_data;
+    assign o_pop_data = (push_empty_active)? push_empty_buffer : pop_data;
 
 endmodule

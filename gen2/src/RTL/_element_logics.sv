@@ -568,4 +568,13 @@ module fifo_bram #(
 
 endmodule
 
+module fifo_multichan_regfile #(
+    parameter  int                    DATA_WIDTH    = 32,
+    parameter  int                    ENTRIES       = 16,
+    parameter  int                    READ_CHANNEL  = 2,
+    parameter  int                    WRITE_CHANNEL = 2,
+    parameter  int                    FIFO_ENTRY    = 32
+) ();
 
+
+endmodule

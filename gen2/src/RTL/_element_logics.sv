@@ -573,8 +573,24 @@ module fifo_multichan_regfile #(
     parameter  int                    ENTRIES       = 16,
     parameter  int                    READ_CHANNEL  = 2,
     parameter  int                    WRITE_CHANNEL = 2,
-    parameter  int                    FIFO_ENTRY    = 32
-) ();
+    parameter  int                    FIFO_ENTRY    = 32,
+
+    localparam int READ_DATA_WIDTH  = DATA_WIDTH * READ_CHANNEL,
+    localparam int WRITE_DATA_WIDTH = DATA_WIDTH * WRITE_CHANNEL
+) (
+    input  logic clk,
+    input  logic reset_n,
+
+    input  logic i_flush,
+
+    input  logic [WRITE_CHANNEL-1:0]    i_push,
+    output logic [WRITE_CHANNEL-1:0]    o_push_ready,
+    input  logic [WRITE_DATA_WIDTH-1:0] i_push_data,
+
+    input  logic [READ_CHANNEL-1:0]     i_pop,
+    output logic [READ_CHANNEL-1:0]     o_pop_valid,
+    output logic [READ_DATA_WIDTH-1:0]  o_pop_data
+);
 
 
 endmodule

@@ -591,6 +591,30 @@ module fifo_multichan_regfile #(
     output logic [READ_CHANNEL-1:0]     o_pop_valid,
     output logic [READ_DATA_WIDTH-1:0]  o_pop_data
 );
+    // ============ LAYER 1: Input ============
+    //   use valid_gather
+    // ============ LAYER 2: Ordering =========
+    //   use FF
+    // ============ LAYER 3: FIFO =============
+    //   use fifo_regfile
+    // ============ LAYER 4: Output Buffering =
+    //   use FF
+    // ============ LAYER 5: Output ===========
 
+    localparam int FIFO_ENTRIES = (READ_CHANNEL > WRITE_CHANNEL)?
+                                    READ_CHANNEL : WRITE_CHANNEL;
+    localparam int FIFO_DATA_WIDTH = FIFO_ENTRIES * DATA_WIDTH;
+
+    localparam int LAYER1_ENTRIES = ;
+
+    valid_gather #(
+        .DATA_WIDTH (DATA_WIDTH),
+        .ENTRIES    (WRITE_CHANNEL)
+    ) LAYER1_ (
+        .i_data  (i_push_data),
+        .i_valid (i_push),
+        .o_valid (),
+        .o_data  ()
+    );
 
 endmodule

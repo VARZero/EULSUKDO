@@ -591,6 +591,7 @@ module fifo_multichan_regfile #(
     output logic [READ_CHANNEL-1:0]     o_pop_valid,
     output logic [READ_DATA_WIDTH-1:0]  o_pop_data
 );
+    //   input: FF
     // ============ LAYER 1: Input ============
     //   use valid_gather
     // ============ LAYER 2: Ordering =========
@@ -605,7 +606,28 @@ module fifo_multichan_regfile #(
                                     READ_CHANNEL : WRITE_CHANNEL;
     localparam int FIFO_DATA_WIDTH = FIFO_ENTRIES * DATA_WIDTH;
 
-    localparam int LAYER1_ENTRIES = ;
+    logic [WRITE_CHANNEL-1:0]    push_valid_reg, push_valid_reg_next;
+    logic [WRITE_DATA_WIDTH-1:0] push_data_reg, push_data_reg_next;
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (~reset_n) begin
+            push_valid_reg <= 0;
+            push_data_reg  <= 0;
+        end
+        else if (i_flush) begin
+            push_valid_reg <= 0;
+            push_data_reg  <= 0;
+        end
+        else begin
+            push_valid_reg <= push_valid_reg_next;
+            push_data_reg  <= push_data_reg_next;
+        end
+    end
+
+    always_comb begin
+        push_valid_reg_next = i_push;
+        push_data_reg_next  = i_push_data;
+    end
 
     valid_gather #(
         .DATA_WIDTH (DATA_WIDTH),

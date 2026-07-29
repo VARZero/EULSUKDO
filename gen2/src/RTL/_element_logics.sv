@@ -569,11 +569,11 @@ module fifo_bram #(
 endmodule
 
 module fifo_multichan_regfile #(
-    parameter  int                    DATA_WIDTH    = 32,
-    parameter  int                    ENTRIES       = 16,
-    parameter  int                    READ_CHANNEL  = 2,
-    parameter  int                    WRITE_CHANNEL = 2,
-    parameter  int                    FIFO_ENTRY    = 32,
+    parameter  int                    DATA_WIDTH     = 32,
+    parameter  int                    ENTRIES        = 16,
+    parameter  int                    READ_CHANNEL   = 2,
+    parameter  int                    WRITE_CHANNEL  = 2,
+    parameter  int                    MIN_FIFO_ENTRY = 32,
 
     localparam int READ_DATA_WIDTH  = DATA_WIDTH * READ_CHANNEL,
     localparam int WRITE_DATA_WIDTH = DATA_WIDTH * WRITE_CHANNEL
@@ -602,9 +602,17 @@ module fifo_multichan_regfile #(
     //   use FF
     // ============ LAYER 5: Output ===========
 
-    localparam int FIFO_ENTRIES = (READ_CHANNEL > WRITE_CHANNEL)?
-                                    READ_CHANNEL : WRITE_CHANNEL;
-    localparam int FIFO_DATA_WIDTH = FIFO_ENTRIES * DATA_WIDTH;
+    localparam int FIFO_CHANNEL           = (READ_CHANNEL > WRITE_CHANNEL)?
+                                             READ_CHANNEL : WRITE_CHANNEL;
+    localparam int FIFO_DATA_WIDTH        = FIFO_CHANNEL * DATA_WIDTH;
+    localparam int FIFO_DEPTH_IN          = MIN_FIFO_ENTRY/FIFO_CHANNEL
+                                            + ( ( (MIN_FIFO_ENTRY%FIFO_CHANNEL) > 0 )? 1 : 0 );
+
+    localparam int PUSH_ORDERING_VG_LEN   = FIFO_CHANNEL+(2*WRITE_CHANNEL);
+    localparam int PUSH_ORDERING_VG_WIDTH = PUSH_ORDERING_VG_LEN * DATA_WIDTH;
+
+    localparam int OUT_ORDERING_VG_LEN    = READ_CHANNEL+FIFO_CHANNEL;
+    localparam int OUT_ORDERING_VG_WIDTH  = OUT_ORDERING_VG_LEN * DATA_WIDTH;
 
     logic [WRITE_CHANNEL-1:0]    push_valid_reg, push_valid_reg_next;
     logic [WRITE_DATA_WIDTH-1:0] push_data_reg, push_data_reg_next;
@@ -630,13 +638,28 @@ module fifo_multichan_regfile #(
     end
 
     valid_gather #(
-        .DATA_WIDTH (DATA_WIDTH),
-        .ENTRIES    (WRITE_CHANNEL)
-    ) LAYER1_ (
-        .i_data  (i_push_data),
-        .i_valid (i_push),
+        .DATA_WIDTH (PUSH_ORDERING_VG_LEN),
+        .ENTRIES    (PUSH_ORDERING_VG_WIDTH)
+    ) U_VG_PUSH (
+        .i_data  (),
+        .i_valid (),
         .o_valid (),
         .o_data  ()
+    );
+
+    fifo_regfile #(
+        .DATA_WIDTH (FIFO_DATA_WIDTH),
+        .FIFO_DEPTH (FIFO_DEPTH_IN)
+    ) U_FIFO_RF (
+        .clk         (),
+        .reset_n     (),
+        .i_flush     (),
+        .i_push      (),
+        .i_push_data (),
+        .i_pop       (),
+        .o_pop_data  (),
+        .o_empty     (),
+        .o_full      ()
     );
 
 endmodule

@@ -614,21 +614,45 @@ module fifo_multichan_regfile #(
     localparam int OUT_ORDERING_VG_LEN    = READ_CHANNEL+FIFO_CHANNEL;
     localparam int OUT_ORDERING_VG_WIDTH  = OUT_ORDERING_VG_LEN * DATA_WIDTH;
 
-    logic [WRITE_CHANNEL-1:0]    push_valid_reg, push_valid_reg_next;
-    logic [WRITE_DATA_WIDTH-1:0] push_data_reg, push_data_reg_next;
+    logic [WRITE_CHANNEL-1:0]          push_valid_reg, push_valid_reg_next;
+    logic [WRITE_DATA_WIDTH-1:0]       push_data_reg, push_data_reg_next;
+
+    logic [PUSH_ORDERING_VG_LEN-1:0]   push_ord_vg_valid_reg, push_ord_vg_valid_next;
+    logic [PUSH_ORDERING_VG_WIDTH-1:0] push_ord_vg_data_reg, push_ord_vg_data_next;
+
+    logic [OUT_ORDERING_VG_LEN-1:0]    out_ord_vg_valid_reg, out_ord_vg_valid_next;
+    logic [OUT_ORDERING_VG_WIDTH-1:0]  out_ord_vg_data_reg, out_ord_vg_data_next;
 
     always_ff @(posedge clk or negedge reset_n) begin
         if (~reset_n) begin
-            push_valid_reg <= 0;
-            push_data_reg  <= 0;
+            push_valid_reg        <= 0;
+            push_data_reg         <= 0;
+            
+            push_ord_vg_valid_reg <= 0;
+            push_ord_vg_data_reg  <= 0;
+
+            out_ord_vg_valid_reg  <= 0;
+            out_ord_vg_data_reg   <= 0;
         end
         else if (i_flush) begin
-            push_valid_reg <= 0;
-            push_data_reg  <= 0;
+            push_valid_reg        <= 0;
+            push_data_reg         <= 0;
+            
+            push_ord_vg_valid_reg <= 0;
+            push_ord_vg_data_reg  <= 0;
+
+            out_ord_vg_valid_reg  <= 0;
+            out_ord_vg_data_reg   <= 0;
         end
         else begin
-            push_valid_reg <= push_valid_reg_next;
-            push_data_reg  <= push_data_reg_next;
+            push_valid_reg        <= push_valid_reg_next;
+            push_data_reg         <= push_data_reg_next;
+            
+            push_ord_vg_valid_reg <= push_ord_vg_valid_next;
+            push_ord_vg_data_reg  <= push_ord_vg_data_next;
+
+            out_ord_vg_valid_reg  <= out_ord_vg_valid_next;
+            out_ord_vg_data_reg   <= out_ord_vg_data_next;
         end
     end
 
@@ -665,7 +689,7 @@ module fifo_multichan_regfile #(
     valid_gather #(
         .DATA_WIDTH (OUT_ORDERING_VG_LEN),
         .ENTRIES    (OUT_ORDERING_VG_WIDTH)
-    ) U_ (
+    ) U_VG_OUT (
         .i_data  (),
         .i_valid (),
         .o_valid (),

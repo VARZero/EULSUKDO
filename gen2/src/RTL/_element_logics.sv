@@ -662,4 +662,14 @@ module fifo_multichan_regfile #(
         .o_full      ()
     );
 
+    valid_gather #(
+        .DATA_WIDTH (OUT_ORDERING_VG_LEN),
+        .ENTRIES    (OUT_ORDERING_VG_WIDTH)
+    ) U_ (
+        .i_data  (),
+        .i_valid (),
+        .o_valid (),
+        .o_data  ()
+    );
+
 endmodule

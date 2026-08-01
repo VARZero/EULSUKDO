@@ -657,18 +657,35 @@ module fifo_multichan_regfile #(
     end
 
     always_comb begin
-        push_valid_reg_next = i_push;
+        push_valid_reg_next = i_push & push_ready;
         push_data_reg_next  = i_push_data;
     end
+
+    // Input -> Push System -> FIFO
+    localparam int PUSH_FRONT_VG_LEN   = FIFO_CHANNEL+WRITE_CHANNEL;
+    localparam int PUSH_FRONT_VG_WIDTH = PUSH_FRONT_VG_LEN * DATA_WIDTH;
+
+    logic [PUSH_FRONT_VG_LEN-1:0]      push_last_valid;
+    logic [PUSH_FRONT_VG_WIDTH-1:0]    push_last_data;
+    
+    logic [PUSH_ORDERING_VG_LEN-1:0]   push_new_vg_valid;
+    logic [PUSH_ORDERING_VG_WIDTH-1:0] push_new_vg_data;
+
+    assign push_last_valid   = push_ord_vg_valid_reg[0 +: PUSH_FRONT_VG_LEN];
+    assign push_last_data    = push_ord_vg_data_reg[0 +: PUSH_FRONT_VG_LEN];
+
+    assign push_new_vg_valid = {push_valid_reg, push_last_valid};
+    assign push_new_vg_data  = {push_data_reg, push_last_data};
+    // ============================
 
     valid_gather #(
         .DATA_WIDTH (PUSH_ORDERING_VG_LEN),
         .ENTRIES    (PUSH_ORDERING_VG_WIDTH)
     ) U_VG_PUSH (
-        .i_data  (),
-        .i_valid (),
-        .o_valid (),
-        .o_data  ()
+        .i_data  (push_new_vg_valid),
+        .i_valid (push_new_vg_data),
+        .o_valid (push_ord_vg_valid_next),
+        .o_data  (push_ord_vg_data_next)
     );
 
     fifo_regfile #(

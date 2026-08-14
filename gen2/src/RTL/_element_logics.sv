@@ -676,7 +676,16 @@ module fifo_multichan_regfile #(
 
     assign push_new_vg_valid = {push_valid_reg, push_last_valid};
     assign push_new_vg_data  = {push_data_reg, push_last_data};
+    
+    logic [FIFO_CHANNEL-1:0]           push_fifo_valid;
+    logic [FIFO_DATA_WIDTH-1:0]        push_fifo_data;
+
+    assign push_fifo_valid   = ( &push_last_valid[FIFO_CHANNEL-1:0] )? 
+                                 {FIFO_CHANNEL{1'b1}} : {FIFO_CHANNEL{1'b0}};
+    assign push_fifo_data    = push_last_data[FIFO_DATA_WIDTH-1:0];
     // ============================
+
+    // 
 
     valid_gather #(
         .DATA_WIDTH (PUSH_ORDERING_VG_LEN),
@@ -692,11 +701,11 @@ module fifo_multichan_regfile #(
         .DATA_WIDTH (FIFO_DATA_WIDTH),
         .FIFO_DEPTH (FIFO_DEPTH_IN)
     ) U_FIFO_RF (
-        .clk         (),
-        .reset_n     (),
-        .i_flush     (),
-        .i_push      (),
-        .i_push_data (),
+        .clk         (clk),
+        .reset_n     (reset_n),
+        .i_flush     (i_flush),
+        .i_push      (push_fifo_valid),
+        .i_push_data (push_fifo_data),
         .i_pop       (),
         .o_pop_data  (),
         .o_empty     (),

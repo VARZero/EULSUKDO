@@ -570,10 +570,9 @@ endmodule
 
 module fifo_multichan #(
     parameter  int                    DATA_WIDTH     = 32,
-    parameter  int                    ENTRIES        = 16,
     parameter  int                    READ_CHANNEL   = 2,
     parameter  int                    WRITE_CHANNEL  = 2,
-    parameter  int                    MIN_FIFO_ENTRY = 32,
+    parameter  int                    MIN_FIFO_ENTRY = 16,
     parameter  bit                    USE_BRAM       = 1'b0,
 
     localparam int READ_DATA_WIDTH  = DATA_WIDTH * READ_CHANNEL,
@@ -775,7 +774,7 @@ module fifo_multichan #(
             fifo_bram #(
                 .DATA_WIDTH (FIFO_DATA_WIDTH),
                 .FIFO_DEPTH (FIFO_DEPTH_IN)
-            ) U_FIFO_RF (
+            ) U_FIFO_BRAM (
                 .clk         (clk),
                 .reset_n     (reset_n),
                 .i_flush     (i_flush),
@@ -802,7 +801,200 @@ module fifo_multichan #(
     assign o_pop_valid = out_ord_vg_valid_reg[READ_CHANNEL-1:0];
     assign o_pop_data  = out_ord_vg_data_reg[READ_DATA_WIDTH-1:0];
 
-
 endmodule
 
+module allocator #(
+    parameter  int                    ENTRIES            = 16,
+    parameter  int                    START_VALUE        = 0,
+    parameter  int                    ALLOCATE_CHANNEL   = 2,
+    parameter  int                    UNALLOCATE_CHANNEL = 2,
+    parameter  bit                    USE_BRAM           = 1'b0,
 
+    localparam int                    ENTRIES_WIDTH      = $clog2(START_VALUE+ENTRIES),
+    localparam int                    ALLOCATE_WIDTH     = ENTRIES_WIDTH * ALLOCATE_CHANNEL,
+    localparam int                    UNALLOCATE_WIDTH   = ENTRIES_WIDTH * UNALLOCATE_CHANNEL
+) (
+    input  logic clk,
+    input  logic reset_n,
+
+    input  logic i_flush,
+
+    input  logic [UNALLOCATE_CHANNEL-1:0] i_unallocate,
+    output logic [UNALLOCATE_CHANNEL-1:0] o_unallocate_ready,
+    input  logic [UNALLOCATE_WIDTH-1:0]   i_unallocate_data,
+
+    input  logic [ALLOCATE_CHANNEL-1:0]   i_allocate,
+    output logic [ALLOCATE_CHANNEL-1:0]   o_allocate_valid,
+    output logic [ALLOCATE_WIDTH-1:0]     o_allocate_data
+);
+    localparam int LAST_VALID = ENTRIES%UNALLOCATE_CHANNEL;
+    localparam int LAST_BLANK = UNALLOCATE_CHANNEL-LAST_VALID;
+    localparam int END_VALUE  = START_VALUE+ENTRIES-1;
+
+    localparam int LAST_CNT   = 
+                        ( UNALLOCATE_CHANNEL * ((ENTRIES/UNALLOCATE_CHANNEL)-1) ) + START_VALUE;
+
+    typedef enum logic [1:0] { 
+        IDLE_S, SETTING_S, SETLAST_S, ALOOCATING_S
+    } state_s;
+
+    state_s                   state, state_next;
+    logic [ENTRIES_WIDTH-1:0] cntpoint, cntpoint_next;
+
+    // State Registers
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (~reset_n) begin
+            state    <= IDLE_S;
+            cntpoint <= START_VALUE;
+        end
+        else begin
+            state    <= state_next;
+            cntpoint <= cntpoint_next;
+        end
+    end
+
+    logic                          fifo_flush;
+    logic [UNALLOCATE_CHANNEL-1:0] fifo_push;
+    logic [UNALLOCATE_CHANNEL-1:0] fifo_push_ready;
+    logic [UNALLOCATE_WIDTH-1:0]   fifo_push_data;
+    logic [ALLOCATE_CHANNEL-1:0]   fifo_pop;
+    logic [ALLOCATE_CHANNEL-1:0]   fifo_pop_valid;
+    logic [ALLOCATE_WIDTH-1:0]     fifo_pop_data;
+
+    logic [UNALLOCATE_CHANNEL-1:0] init_unallocate;
+
+    // State Transition
+    always_comb begin
+        case(state)
+            IDLE_S:       begin
+                if ( (ENTRIES/UNALLOCATE_CHANNEL) == 0 ) begin
+                    state_next = SETLAST_S;
+                end
+                else begin
+                    state_next = SETTING_S;
+                end
+            end
+            SETTING_S:    begin
+                if (cntpoint == LAST_CNT) begin
+                    if (LAST_VALID != 0) begin
+                        state_next = SETLAST_S;
+                    end
+                    else begin
+                        state_next = ALOOCATING_S;
+                    end
+                end
+                else state_next = SETTING_S;
+            end
+            SETLAST_S:    state_next = ALOOCATING_S;
+            ALOOCATING_S: begin
+                if (i_flush) state_next = IDLE_S;
+                else         state_next = ALOOCATING_S;
+            end
+            default:      state_next = IDLE_S;
+        endcase
+    end
+
+    // State Operation
+    always_comb begin
+        case(state)
+            IDLE_S:       begin
+                cntpoint_next  = START_VALUE;
+                fifo_flush     = 1'b1;
+                fifo_push      = 0;
+                fifo_push_data = 0;
+                fifo_pop       = 0;
+            end
+            SETTING_S:    begin
+                if (cntpoint == LAST_CNT) begin
+                    if (LAST_VALID != 0) begin
+                        cntpoint_next = cntpoint + UNALLOCATE_CHANNEL;
+                    end
+                    else begin
+                        cntpoint_next = START_VALUE;
+                    end
+                end
+                else cntpoint_next = cntpoint + UNALLOCATE_CHANNEL;
+                
+                fifo_flush     = 1'b0;
+                fifo_push      = {UNALLOCATE_CHANNEL{1'b1}};
+                for (init_unallocate = 0; init_unallocate < UNALLOCATE_CHANNEL; init_unallocate = init_unallocate+1) begin
+                    fifo_push_data[(ENTRIES_WIDTH*init_unallocate) +: ENTRIES_WIDTH] = cntpoint + init_unallocate;
+                end
+                fifo_pop       = 0;
+            end
+            SETLAST_S:    begin
+                cntpoint_next  = START_VALUE;
+                fifo_flush     = 1'b0;
+                fifo_push      = { {LAST_BLANK{1'b0}}, {LAST_VALID{1'b1}} };
+                for (init_unallocate = 0; init_unallocate < UNALLOCATE_CHANNEL; init_unallocate = init_unallocate+1) begin
+                    fifo_push_data[(ENTRIES_WIDTH*init_unallocate) +: ENTRIES_WIDTH] = cntpoint + init_unallocate;
+                end
+                fifo_pop       = 0;
+            end
+            ALOOCATING_S: begin
+                cntpoint_next  = START_VALUE;
+                fifo_flush     = 1'b0;
+                fifo_push      = i_unallocate;
+                fifo_push_data = i_unallocate_data;
+                fifo_pop       = i_allocate;
+            end
+            default:      begin
+                cntpoint_next  = START_VALUE;
+                fifo_flush     = 1'b0;
+                fifo_push      = 0;
+                fifo_push_data = 0;
+                fifo_pop       = 0;
+            end
+        endcase
+    end
+
+    // State Output
+    always_comb begin
+        case(state)
+            IDLE_S:       begin
+                o_unallocate_ready = 0;
+                o_allocate_valid   = 0;
+                o_allocate_data    = 0;
+            end
+            SETTING_S:    begin
+                o_unallocate_ready = 0;
+                o_allocate_valid   = 0;
+                o_allocate_data    = 0;
+            end
+            SETLAST_S:    begin
+                o_unallocate_ready = 0;
+                o_allocate_valid   = 0;
+                o_allocate_data    = 0;
+            end
+            ALOOCATING_S: begin
+                o_unallocate_ready = fifo_push_ready;
+                o_allocate_valid   = fifo_pop_valid;
+                o_allocate_data    = fifo_pop_data;
+            end
+            default:      begin
+                o_unallocate_ready = 0;
+                o_allocate_valid   = 0;
+                o_allocate_data    = 0;
+            end
+        endcase
+    end
+
+    fifo_multichan #(
+        .DATA_WIDTH     (ENTRIES_WIDTH),
+        .READ_CHANNEL   (ALLOCATE_CHANNEL),
+        .WRITE_CHANNEL  (UNALLOCATE_CHANNEL),
+        .MIN_FIFO_ENTRY (ENTRIES),
+        .USE_BRAM       (USE_BRAM)
+    ) U_ALLOC_FIFO (
+        .clk            (clk),
+        .reset_n        (reset_n),
+        .i_flush        (fifo_flush),
+        .i_push         (fifo_push),
+        .o_push_ready   (fifo_push_ready),
+        .i_push_data    (fifo_push_data),
+        .i_pop          (fifo_pop),
+        .o_pop_valid    (fifo_pop_valid),
+        .o_pop_data     (fifo_pop_data)
+    );
+
+endmodule

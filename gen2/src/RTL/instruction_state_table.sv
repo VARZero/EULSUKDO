@@ -83,4 +83,75 @@ module instruction_state_table #(
     output wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                         o_prm_ready_phyreg_data
 );
 
+    localparam int NEW_UPDATE_WIDTH = STRUCT_DECODE_NEW_INST + STRUCT_PRM_ENTRY_UPDATE;
+
+allocator #(
+    .ENTRIES            (STRUCT_INST_STATE_ENTRIES),
+    .START_VALUE        (0),
+    .ALLOCATE_CHANNEL   (STRUCT_DECODE_NEW_INST),
+    .UNALLOCATE_CHANNEL (),
+    .USE_BRAM           (1'b0)
+) U_IST_ENTRY_ALLOCATOR (
+    .clk                (clk),
+    .reset_n            (reset_n),
+    .i_flush            (1'b0), // 지금은 분기가 없어..
+    .i_unallocate       (),
+    .o_unallocate_ready (),
+    .i_unallocate_data  (),
+    .i_allocate         (),
+    .o_allocate_valid   (),
+    .o_allocate_data    ()
+);
+
+regfile #(
+    .DATA_WIDTH    (_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS),
+    .ENTRIES       (STRUCT_INST_STATE_ENTRIES),
+    .READ_CHANNEL  (),
+    .WRITE_CHANNEL (NEW_UPDATE_WIDTH),
+    .INITIAL_VALUE (0)
+) U_IST_SOURCE_TABLE (
+    .clk           (clk),
+    .reset_n       (reset_n),
+    .i_flush       (1'b0), // 지금은 분기가 없어..
+    .i_read_addr   (),
+    .o_read_data   (),
+    .i_write_addr  (),
+    .i_write_en    (),
+    .i_write_data  ()
+);
+
+regfile #(
+    .DATA_WIDTH    (IS_INST_OPERANDS),
+    .ENTRIES       (STRUCT_INST_STATE_ENTRIES),
+    .READ_CHANNEL  (),
+    .WRITE_CHANNEL (NEW_UPDATE_WIDTH),
+    .INITIAL_VALUE (0)
+) U_IST_READY_FLAGS_TABLE (
+    .clk           (clk),
+    .reset_n       (reset_n),
+    .i_flush       (1'b0), // 지금은 분기가 없어..
+    .i_read_addr   (),
+    .o_read_data   (),
+    .i_write_addr  (),
+    .i_write_en    (),
+    .i_write_data  ()
+);
+
+regfile #(
+    .DATA_WIDTH    (_BITWIDTH_EX_INST_WIDTH),
+    .ENTRIES       (STRUCT_INST_STATE_ENTRIES),
+    .READ_CHANNEL  (),
+    .WRITE_CHANNEL (NEW_UPDATE_WIDTH),
+    .INITIAL_VALUE (0)
+) U_IST_ENTRY_TABLE (
+    .clk           (clk),
+    .reset_n       (reset_n),
+    .i_flush       (1'b0), // 지금은 분기가 없어..
+    .i_read_addr   (),
+    .o_read_data   (),
+    .i_write_addr  (),
+    .i_write_en    (),
+    .i_write_data  ()
+);
+
 endmodule

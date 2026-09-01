@@ -36,6 +36,7 @@ module new_entry_logic #(
                                                          + IS_INST_PC_BITWIDTH,
     localparam int _BITWIDTH_INTERNAL_INST_WIDTH        = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd
@@ -43,6 +44,7 @@ module new_entry_logic #(
                                                          + IS_INST_OPERANDS, // Ready1..n
     localparam int _BITWIDTH_EX_INST_WIDTH              = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd

@@ -21,7 +21,7 @@ module eulsukdo_scheduler #(
     parameter int STRUCT_EX_OUT_RESULT[STRUCT_EX_CORES] = {1, 1, 1, 1, 1},
     parameter int STRUCT_EX_OUT_RESULT_SUM              = 5,
     parameter int STRUCT_EX_BRANCH                      = 1,
-    parameter int STRUCT_PRM_ENTRY_UPDATE                          = 5,
+    parameter int STRUCT_PRM_ENTRY_UPDATE               = 5,
     parameter int STRUCT_PRM_ENTRY_BUFFER               = 4,
     parameter int STRUCT_UNALLOCATE_PHYREG              = 4,
     parameter int STRUCT_FLOW_WINDOWS                   = 8,
@@ -36,6 +36,7 @@ module eulsukdo_scheduler #(
                                                          + IS_INST_PC_BITWIDTH,
     localparam int _BITWIDTH_INTERNAL_INST_WIDTH        = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd
@@ -43,6 +44,7 @@ module eulsukdo_scheduler #(
                                                          + IS_INST_OPERANDS, // Ready1..n
     localparam int _BITWIDTH_EX_INST_WIDTH              = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd

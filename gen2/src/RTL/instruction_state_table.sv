@@ -81,8 +81,8 @@ module instruction_state_table #(
     output wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] o_rs_ready_inst_data,
 
     // Wait Physical Registers Output (PRM)
-    output wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        o_prm_wait_phyreg_valid,
-    output wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]                              o_prm_wait_phyreg_data
+    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                         o_prm_wait_phyreg_valid,
+    output wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_READY_PRM) )-1:0]                               o_prm_wait_phyreg_data
 );
 
     localparam int NEW_UPDATE_WIDTH        = STRUCT_DECODE_NEW_INST + STRUCT_PRM_ENTRY_UPDATE;

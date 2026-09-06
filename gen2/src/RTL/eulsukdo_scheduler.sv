@@ -136,8 +136,8 @@ module eulsukdo_scheduler #(
     wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] ist_rs_ready_inst_data;
 
     // IST -> PRM : Wait Phyreg/ISTmap pair
-    wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        ist_prm_wait_phyreg_valid;
-    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]                              ist_prm_wait_phyreg_data;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         ist_prm_wait_phyreg_valid;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_READY_PRM) )-1:0]                               ist_prm_wait_phyreg_data;
 
     // RS -> EX : Wait EX Instructions
     wire [STRUCT_EX_CORES-1:0]                                                                rs_ex_wait_inst_valid;

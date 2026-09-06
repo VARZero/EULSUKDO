@@ -67,8 +67,8 @@ module physical_register_mapper #(
     input  wire                                                               reset_n,
 
     // Wait Physical Registers Input (IST)
-    input  wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                 i_ist_wait_phyreg_valid, 
-    input  wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]       i_ist_wait_phyreg_data,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                  i_ist_wait_phyreg_valid, 
+    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_READY_PRM) )-1:0]        i_ist_wait_phyreg_data,
         
     // Broadcast Done phyreg Input (WBC)
     input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                i_wbc_done_phyreg_valid,

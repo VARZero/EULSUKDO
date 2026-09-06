@@ -29,9 +29,11 @@ module eulsukdo_scheduler #(
 
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
+    localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
     localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
     localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
     localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
     localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH,
     localparam int _BITWIDTH_INTERNAL_INST_WIDTH        = _BITWIDTH_STRUCT_FLOW_WINDOWS
@@ -126,7 +128,7 @@ module eulsukdo_scheduler #(
 
     // PRM -> IST : Ready Phyreg/ISTmap pair
     wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        prm_ist_ready_phyreg_valid;
-    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                         prm_ist_ready_phyreg_data;
+    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]                              prm_ist_ready_phyreg_data;
 
     // IST -> RS : Executable (All phyreg in instruction are ready) Internal Instructions
     wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_valid;
@@ -135,7 +137,7 @@ module eulsukdo_scheduler #(
 
     // IST -> PRM : Wait Phyreg/ISTmap pair
     wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        ist_prm_wait_phyreg_valid;
-    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                         ist_prm_wait_phyreg_data;
+    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]                              ist_prm_wait_phyreg_data;
 
     // RS -> EX : Wait EX Instructions
     wire [STRUCT_EX_CORES-1:0]                                                                rs_ex_wait_inst_valid;

@@ -116,11 +116,11 @@ module eulsukdo_scheduler #(
     // NEL -> IST : New Internal Instructions
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_ist_new_inst_valid;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_ist_new_inst_get;
-    wire [(STRUCT_EX_CORES *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                            nel_ist_new_inst_data;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                     nel_ist_new_inst_data;
 
     // NEL -> FCL : Retired Physical Registers
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_fcl_retired_phyreg_valid;
-    wire [(STRUCT_EX_CORES *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]                      nel_fcl_retired_phyreg_data;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]               nel_fcl_retired_phyreg_data;
     
     // NEL -> FCL : Jump/Branch Information
     wire                                                                                      nel_fcl_jumpbranch_valid;

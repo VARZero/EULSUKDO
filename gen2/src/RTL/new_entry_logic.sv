@@ -95,15 +95,49 @@ module new_entry_logic #(
     // Create Internal Instruction Output (IST)
     output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_ist_new_inst_valid,
     input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_ist_new_inst_get,
-    output wire [(STRUCT_EX_CORES *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                    o_ist_new_inst_data,
+    output wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]             o_ist_new_inst_data,
 
     // Retired Physical Registers Output (FCL)
     output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_fcl_retired_phyreg_valid,
-    output wire [(STRUCT_EX_CORES *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]              o_fcl_retired_phyreg_data,
+    output wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]       o_fcl_retired_phyreg_data,
 
     // Jump/Branch Information Output (FCL)
     output wire                                                                              o_fcl_jumpbranch_valid,
     output wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                                      o_fcl_jumpbranch_data
 );
+
+    regfile #(
+        .DATA_WIDTH    (_BITWIDTH_STRUCT_PHYREGS),
+        .ENTRIES       (IS_INST_REGS),
+        .READ_CHANNEL  (STRUCT_DECODE_NEW_INST),
+        .WRITE_CHANNEL (STRUCT_DECODE_NEW_INST),
+        .INITIAL_VALUE (0)
+    ) U_NEL_LOGREG_PHYREG_MAP (
+        .clk           (clk),
+        .reset_n       (reset_n),
+        .i_flush       (1'b0),
+        .i_read_addr   (),
+        .o_read_data   (),
+        .i_write_addr  (),
+        .i_write_en    (),
+        .i_write_data  ()
+    );
+
+    regfile #(
+        .DATA_WIDTH    (1),
+        .ENTRIES       (STRUCT_PHYREGS),
+        .READ_CHANNEL  (STRUCT_DECODE_NEW_INST),
+        .WRITE_CHANNEL (STRUCT_EX_OUT_RESULT_SUM+STRUCT_DECODE_NEW_INST),
+        .INITIAL_VALUE (1)
+    ) U_NEL_PHYREG_READY (
+        .clk           (clk),
+        .reset_n       (reset_n),
+        .i_flush       (1'b0),
+        .i_read_addr   (),
+        .o_read_data   (),
+        .i_write_addr  (),
+        .i_write_en    (),
+        .i_write_data  ()
+    );
 
 endmodule

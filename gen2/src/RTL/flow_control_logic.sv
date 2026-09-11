@@ -63,29 +63,29 @@ module flow_control_logic #(
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
-    input  wire                                                                  clk,
-    input  wire                                                                  reset_n,
+    input  wire                                                                        clk,
+    input  wire                                                                        reset_n,
         
     // Done PC Input (WBC)
-    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                   i_wbc_done_pc_valid,
-    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_EX_DONE_PC) )-1:0] i_wbc_done_pc_data,
+    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                         i_wbc_done_pc_valid,
+    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_EX_DONE_PC) )-1:0]       i_wbc_done_pc_data,
         
     // Jump/Branch Information Input (NEL)
-    input  wire                                                                  i_nel_jumpbranch_valid,
-    input  wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                          i_nel_jumpbranch_data,
+    input  wire                                                                        i_nel_jumpbranch_valid,
+    input  wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                                i_nel_jumpbranch_data,
 
     // Retired Physical Registers Input (NEL)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                     i_nel_retired_phyreg_valid,
-    input  wire [(STRUCT_EX_CORES *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]  i_nel_retired_phyreg_data,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                           i_nel_retired_phyreg_valid,
+    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0] i_nel_retired_phyreg_data,
 
     // Request New Instruction Output (IM)
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                     o_im_req_pc_valid,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                     i_im_req_pc_get,
-    output wire [(STRUCT_DECODE_NEW_INST *(IS_INST_PC_BITWIDTH) )-1:0]           o_im_req_pc,
+    output wire [STRUCT_DECODE_NEW_INST-1:0]                                           o_im_req_pc_valid,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                           i_im_req_pc_get,
+    output wire [(STRUCT_DECODE_NEW_INST *(IS_INST_PC_BITWIDTH) )-1:0]                 o_im_req_pc,
 
     // Unallocate Retired Registers Output (PRM)
-    output wire [STRUCT_UNALLOCATE_PHYREG-1:0]                                   o_prm_unallocate_phyreg_valid,
-    output wire [(STRUCT_UNALLOCATE_PHYREG *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]    o_prm_unallocate_phyreg_data
+    output wire [STRUCT_UNALLOCATE_PHYREG-1:0]                                         o_prm_unallocate_phyreg_valid,
+    output wire [(STRUCT_UNALLOCATE_PHYREG *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]          o_prm_unallocate_phyreg_data
 );
 
 endmodule

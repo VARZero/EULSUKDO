@@ -69,7 +69,7 @@ module instruction_state_table #(
     // New Internal Instruction Input (NEL)
     input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                         i_nel_new_inst_valid,
     output wire [STRUCT_DECODE_NEW_INST-1:0]                                                         o_nel_new_inst_get,
-    input  wire [(STRUCT_EX_CORES *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                            i_nel_new_inst_data,
+    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH))-1:0]                      i_nel_new_inst_data,
 
     // Ready Physical Registers Input (PRM)
     input  wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        i_prm_ready_phyreg_valid,
@@ -81,7 +81,7 @@ module instruction_state_table #(
     output wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] o_rs_ready_inst_data,
 
     // Wait Physical Registers Output (PRM)
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                         o_prm_wait_phyreg_valid,
+    output wire [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]                                      o_prm_wait_phyreg_valid,
     output wire [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS*(_BITWIDTH_READY_PRM) )-1:0]               o_prm_wait_phyreg_data
 );
 
@@ -175,8 +175,11 @@ module instruction_state_table #(
 
             // Wait PRM
             for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
-                o_prm_wait_phyreg_data[(_BITWIDTH_READY_PRM*()) +: _BITWIDTH_READY_PRM]
-                    = {, };
+                o_prm_wait_phyreg_valid[(idx_internal_inst*IS_INST_OPERANDS)+idx_rs] 
+                    = ready_nel_update[idx_rs][idx_internal_inst];
+                o_prm_wait_phyreg_data[(_BITWIDTH_READY_PRM*( (idx_internal_inst*IS_INST_OPERANDS)+idx_rs )) +: _BITWIDTH_READY_PRM]
+                    = {allocate_alloc_num_list[idx_internal_inst], 
+                       target_phyreg_source[idx_internal_inst][(_BITWIDTH_STRUCT_PHYREGS*idx_rs) +: _BITWIDTH_STRUCT_PHYREGS]};
             end
             
         end
@@ -220,7 +223,6 @@ module instruction_state_table #(
             end
         end
 
-        o_prm_wait_phyreg_valid = ready_nel_update;
         o_rs_ready_inst_valid   = {ready_is_entries, ready_prm_rs};
     end
 
@@ -236,7 +238,7 @@ module instruction_state_table #(
         .i_flush            (1'b0), // 지금은 분기가 없어..
         .i_unallocate       (ready_prm_rs),
         .o_unallocate_ready (),
-        .i_unallocate_data  (prm_update_phyreg_all),
+        .i_unallocate_data  (prm_update_istnum_all),
         .i_allocate         (allocate_is_entries),
         .o_allocate_valid   (allocate_valid),
         .o_allocate_data    (allocate_alloc_num_out)
@@ -245,8 +247,8 @@ module instruction_state_table #(
     regfile #(
         .DATA_WIDTH    (_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS),
         .ENTRIES       (STRUCT_INST_STATE_ENTRIES),
-        .READ_CHANNEL  (STRUCT_DECODE_NEW_INST),
-        .WRITE_CHANNEL (NEW_UPDATE_WIDTH),
+        .READ_CHANNEL  (STRUCT_PRM_ENTRY_UPDATE),
+        .WRITE_CHANNEL (STRUCT_DECODE_NEW_INST),
         .INITIAL_VALUE (0)
     ) U_IST_SOURCE_TABLE (
         .clk           (clk),
@@ -270,7 +272,8 @@ module instruction_state_table #(
         .reset_n       (reset_n),
         .i_flush       (1'b0), // 지금은 분기가 없어..
         .i_read_addr   (prm_update_istnum_all),
-        .o_read_data   (o_rs_ready_inst_data),
+        .o_read_data   (o_rs_ready_inst_data[ ((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH))-1
+                                              : (STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH)) ]),
         .i_write_addr  (allocate_alloc_num_out),
         .i_write_en    (allocate_is_entries),
         .i_write_data  (i_nel_new_inst_data)
@@ -298,5 +301,7 @@ module instruction_state_table #(
             );
         end
     endgenerate
+    
+    assign o_rs_ready_inst_data[(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH))-1:0] = i_nel_new_inst_data;
 
 endmodule

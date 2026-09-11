@@ -132,7 +132,6 @@ module eulsukdo_scheduler #(
 
     // IST -> RS : Executable (All phyreg in instruction are ready) Internal Instructions
     wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_valid;
-    wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_get;
     wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] ist_rs_ready_inst_data;
 
     // IST -> PRM : Wait Phyreg/ISTmap pair
@@ -245,7 +244,6 @@ module eulsukdo_scheduler #(
         
         // Executable (All phyreg in instruction are ready) Internal Instruction Output (RS)
         .o_rs_ready_inst_valid          (ist_rs_ready_inst_valid),
-        .i_rs_ready_inst_get            (ist_rs_ready_inst_get),
         .o_rs_ready_inst_data           (ist_rs_ready_inst_data),
 
         // Wait Physical Registers Output (PRM)
@@ -260,7 +258,6 @@ module eulsukdo_scheduler #(
 
         // Executable (All phyreg in instruction are ready) Internal Instruction Input (IST)
         .i_ist_ready_inst_valid         (ist_rs_ready_inst_valid),
-        .o_ist_ready_inst_get           (ist_rs_ready_inst_get),
         .i_ist_ready_inst_data          (ist_rs_ready_inst_data),
 
         // Wait EX Instruction Output (EX)

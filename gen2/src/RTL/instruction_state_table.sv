@@ -63,26 +63,25 @@ module instruction_state_table #(
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
-    input  wire                                                                                      clk,
-    input  wire                                                                                      reset_n,
+    input  logic                                                                                      clk,
+    input  logic                                                                                      reset_n,
 
     // New Internal Instruction Input (NEL)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                         i_nel_new_inst_valid,
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                         o_nel_new_inst_get,
-    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH))-1:0]                      i_nel_new_inst_data,
+    input  logic [STRUCT_DECODE_NEW_INST-1:0]                                                         i_nel_new_inst_valid,
+    output logic [STRUCT_DECODE_NEW_INST-1:0]                                                         o_nel_new_inst_get,
+    input  logic [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH))-1:0]                      i_nel_new_inst_data,
 
     // Ready Physical Registers Input (PRM)
-    input  wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        i_prm_ready_phyreg_valid,
-    input  wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]                              i_prm_ready_phyreg_data,
+    input  logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        i_prm_ready_phyreg_valid,
+    input  logic [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]                              i_prm_ready_phyreg_data,
     
     // Executable (All phyreg in instruction are ready) Internal Instruction Output (RS)
-    output wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               o_rs_ready_inst_valid,
-    input  wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               i_rs_ready_inst_get,
-    output wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] o_rs_ready_inst_data,
+    output logic [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               o_rs_ready_inst_valid,
+    output logic [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)*_BITWIDTH_EX_INST_WIDTH)-1:0]     o_rs_ready_inst_data,
 
     // Wait Physical Registers Output (PRM)
-    output wire [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]                                      o_prm_wait_phyreg_valid,
-    output wire [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS*(_BITWIDTH_READY_PRM) )-1:0]               o_prm_wait_phyreg_data
+    output logic [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]                                      o_prm_wait_phyreg_valid,
+    output logic [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS*(_BITWIDTH_READY_PRM) )-1:0]               o_prm_wait_phyreg_data
 );
 
     localparam int NEW_UPDATE_WIDTH        = STRUCT_PRM_ENTRY_UPDATE + STRUCT_DECODE_NEW_INST;
@@ -107,6 +106,8 @@ module instruction_state_table #(
     logic [_BITWIDTH_EX_INST_WIDTH-1:0]                        target_ist_entry        [0:STRUCT_DECODE_NEW_INST-1];
     logic [(_BITWIDTH_STRUCT_PHYREGS * IS_INST_OPERANDS)-1:0]  target_phyreg_source    [0:STRUCT_DECODE_NEW_INST-1];
     logic [IS_INST_OPERANDS-1:0]                               target_source_ready     [0:STRUCT_DECODE_NEW_INST-1];
+    logic [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_EX_INST_WIDTH))-1:0]
+                                                               nel_new_inst_data;
 
     logic [STRUCT_DECODE_NEW_INST-1:0]                         allocate_valid;
     logic [_BITWIDTH_ALLOC_IST_NUM-1:0]                        allocate_alloc_num_out;
@@ -124,7 +125,7 @@ module instruction_state_table #(
     logic [(_BITWIDTH_STRUCT_PHYREGS*STRUCT_PRM_ENTRY_UPDATE)-1:0]
                                                                prm_update_phyreg_all;
 
-    logic [((_BITWIDTH_PHY_RS_INST*STRUCT_DECODE_NEW_INST)*STRUCT_PRM_ENTRY_UPDATE)-1:0] 
+    logic [(_BITWIDTH_PHY_RS_INST*STRUCT_PRM_ENTRY_UPDATE)-1:0] 
                                                                check_phyreg_all;
 
     logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        ready_prm_update        [0:IS_INST_OPERANDS-1];
@@ -138,7 +139,7 @@ module instruction_state_table #(
     always_comb begin
         allocate_is_entries = 0; ready_is_entries = 0; ready_prm_rs = 0;
         for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
-            ready_prm_update[idx_rs] = last_ready[idx_rs];
+            ready_prm_update[idx_rs] = last_ready[idx_rs] & i_prm_ready_phyreg_valid[idx_rs];
         end
 
         for (idx_internal_inst = 0; idx_internal_inst < STRUCT_DECODE_NEW_INST; idx_internal_inst = idx_internal_inst+1) begin
@@ -161,6 +162,12 @@ module instruction_state_table #(
                 ( &target_source_ready[idx_internal_inst] )? 1'b0 : i_nel_new_inst_valid[idx_internal_inst];
             ready_is_entries   [idx_internal_inst]     = 
                 ( &target_source_ready[idx_internal_inst] )? i_nel_new_inst_valid[idx_internal_inst] : 1'b0;
+
+            nel_new_inst_data[(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst) +: _BITWIDTH_EX_INST_WIDTH] = 
+                target_ist_entry[idx_internal_inst];
+
+            o_rs_ready_inst_data[(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_EX_INST_WIDTH)+(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst) 
+                +: _BITWIDTH_EX_INST_WIDTH] = target_ist_entry[idx_internal_inst];
         end
 
         for (idx_internal_inst = 0; idx_internal_inst < STRUCT_DECODE_NEW_INST; idx_internal_inst = idx_internal_inst+1) begin
@@ -176,12 +183,11 @@ module instruction_state_table #(
             // Wait PRM
             for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
                 o_prm_wait_phyreg_valid[(idx_internal_inst*IS_INST_OPERANDS)+idx_rs] 
-                    = ready_nel_update[idx_rs][idx_internal_inst];
+                    = ~ready_nel_update[idx_rs][idx_internal_inst] & i_nel_new_inst_valid[idx_internal_inst];
                 o_prm_wait_phyreg_data[(_BITWIDTH_READY_PRM*( (idx_internal_inst*IS_INST_OPERANDS)+idx_rs )) +: _BITWIDTH_READY_PRM]
                     = {allocate_alloc_num_list[idx_internal_inst], 
                        target_phyreg_source[idx_internal_inst][(_BITWIDTH_STRUCT_PHYREGS*idx_rs) +: _BITWIDTH_STRUCT_PHYREGS]};
             end
-            
         end
 
         for (idx_internal_inst = 0; idx_internal_inst < STRUCT_PRM_ENTRY_UPDATE; idx_internal_inst = idx_internal_inst+1) begin
@@ -211,11 +217,11 @@ module instruction_state_table #(
                     check_phyreg_all[(_BITWIDTH_STRUCT_PHYREGS*((IS_INST_OPERANDS*idx_internal_inst)+idx_rs)) +: _BITWIDTH_STRUCT_PHYREGS];
                 if ((!last_ready[idx_rs][idx_internal_inst]) && (ready_check_phyreg_target == prm_update_phyreg[idx_internal_inst])) begin
                     ready_prm_update[idx_rs][idx_internal_inst] = i_prm_ready_phyreg_valid[idx_internal_inst];
-                    ready_check_section[idx_rs] = 1'b1;
+                    ready_check_section[idx_rs] = i_prm_ready_phyreg_valid[idx_internal_inst];
                 end
             end
 
-            if (&ready_check_section) begin
+            if (i_prm_ready_phyreg_valid[idx_internal_inst] && (&ready_check_section)) begin
                 for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
                     ready_prm_update[idx_rs][idx_internal_inst] = 0;
                 end
@@ -272,11 +278,10 @@ module instruction_state_table #(
         .reset_n       (reset_n),
         .i_flush       (1'b0), // 지금은 분기가 없어..
         .i_read_addr   (prm_update_istnum_all),
-        .o_read_data   (o_rs_ready_inst_data[ ((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH))-1
-                                              : (STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH)) ]),
+        .o_read_data   (o_rs_ready_inst_data[(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_EX_INST_WIDTH)-1:0]),
         .i_write_addr  (allocate_alloc_num_out),
         .i_write_en    (allocate_is_entries),
-        .i_write_data  (i_nel_new_inst_data)
+        .i_write_data  (nel_new_inst_data)
     );
 
     genvar ready_rf_idx;
@@ -302,6 +307,6 @@ module instruction_state_table #(
         end
     endgenerate
     
-    assign o_rs_ready_inst_data[(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH))-1:0] = i_nel_new_inst_data;
+    assign o_nel_new_inst_get = allocate_valid;
 
 endmodule

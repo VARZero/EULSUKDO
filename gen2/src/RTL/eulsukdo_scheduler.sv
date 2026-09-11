@@ -57,7 +57,8 @@ module eulsukdo_scheduler #(
     localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
                                                          + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
-    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
+    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Flag
+                                                         + 1 // Jump Register Flag
                                                          + 1 // Branch Flag
                                                          + IS_INST_PC_BITWIDTH, // New Program Counter
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
@@ -70,6 +71,7 @@ module eulsukdo_scheduler #(
     output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_req_pc_valid,
     input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_req_pc_get,
     output wire [(STRUCT_DECODE_NEW_INST * _BITWIDTH_FLOW_WINDOWS_PC)-1:0]                   o_im_req_pc,
+    
     // Instruction Receive
     input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_recv_inst_valid,
     output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_recv_inst_get,

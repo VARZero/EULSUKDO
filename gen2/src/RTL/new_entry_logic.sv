@@ -57,54 +57,211 @@ module new_entry_logic #(
     localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
                                                          + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
-    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
+    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Flag
+                                                         + 1 // Jump Register Flag
                                                          + 1 // Branch Flag
                                                          + IS_INST_PC_BITWIDTH, // New Program Counter
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
-    input wire                                                                               clk,
-    input wire                                                                               reset_n,
+    input  logic                                                                              clk,
+    input  logic                                                                              reset_n,
 
     // Instruction Input (IM)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_recv_inst_valid,
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_recv_inst_get,
-    input  wire [(STRUCT_DECODE_NEW_INST * _BITWIDTH_FLOW_WINDOWS_PC)-1:0]                   i_im_recv_pc,
+    input  logic [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_recv_inst_valid,
+    output logic [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_recv_inst_get,
+    input  logic [(STRUCT_DECODE_NEW_INST * _BITWIDTH_FLOW_WINDOWS_PC)-1:0]                   i_im_recv_pc,
 
     // Allocate Physical Registers Input (PRM)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_prm_phyreg_valid,
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_prm_phyreg_get,
-    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                  i_prm_phyreg_data,
+    input  logic [STRUCT_DECODE_NEW_INST-1:0]                                                 i_prm_phyreg_valid,
+    output logic [STRUCT_DECODE_NEW_INST-1:0]                                                 o_prm_phyreg_get,
+    input  logic [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                  i_prm_phyreg_data,
 
     // Done Physical Registers Input (WBC)
-    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                               i_wbc_done_phyreg_valid,
-    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                i_wbc_done_phyreg_data,
+    input  logic [STRUCT_EX_OUT_RESULT_SUM-1:0]                                               i_wbc_done_phyreg_valid,
+    input  logic [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                i_wbc_done_phyreg_data,
 
     // Decoder Input (Decoder)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_exception,
-    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_EX_PATH) )-1:0]                  i_dec_decode_expath,
-    input  wire [(STRUCT_DECODE_NEW_INST *(EX_INST_MICROOP_BITWIDTH) )-1:0]                  i_dec_decode_microop,
-    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_IS_INST_REGS) )-1:0]                    i_dec_decode_rd,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_newreg,
-    input  wire [((STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS) *(_BITWIDTH_IS_INST_REGS) )-1:0] i_dec_decode_rs,
-    input  wire [(STRUCT_DECODE_NEW_INST *(IS_INST_IMM) )-1:0]                               i_dec_decode_imm,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_jump,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_jump_reg,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_branch,
+    input  logic [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_exception,
+    input  logic [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_EX_PATH) )-1:0]                  i_dec_decode_expath,
+    input  logic [(STRUCT_DECODE_NEW_INST *(EX_INST_MICROOP_BITWIDTH) )-1:0]                  i_dec_decode_microop,
+    input  logic [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_IS_INST_REGS) )-1:0]                    i_dec_decode_rd,
+    input  logic [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_newreg,
+    input  logic [((STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS) *(_BITWIDTH_IS_INST_REGS) )-1:0] i_dec_decode_rs,
+    input  logic [(STRUCT_DECODE_NEW_INST *(IS_INST_IMM) )-1:0]                               i_dec_decode_imm,
+    input  logic [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_jump,
+    input  logic [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_jump_reg,
+    input  logic [STRUCT_DECODE_NEW_INST-1:0]                                                 i_dec_decode_branch,
 
     // Create Internal Instruction Output (IST)
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_ist_new_inst_valid,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_ist_new_inst_get,
-    output wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]             o_ist_new_inst_data,
+    output logic [STRUCT_DECODE_NEW_INST-1:0]                                                 o_ist_new_inst_valid,
+    input  logic [STRUCT_DECODE_NEW_INST-1:0]                                                 i_ist_new_inst_get,
+    output logic [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]             o_ist_new_inst_data,
 
     // Retired Physical Registers Output (FCL)
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_fcl_retired_phyreg_valid,
-    output wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]       o_fcl_retired_phyreg_data,
+    output logic [STRUCT_DECODE_NEW_INST-1:0]                                                 o_fcl_retired_phyreg_valid,
+    output logic [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]       o_fcl_retired_phyreg_data,
 
     // Jump/Branch Information Output (FCL)
-    output wire                                                                              o_fcl_jumpbranch_valid,
-    output wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                                      o_fcl_jumpbranch_data
+    output logic                                                                              o_fcl_jumpbranch_valid,
+    output logic [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                                      o_fcl_jumpbranch_data
 );
+    // LSB [ valid, expath, pc, microop, rd, newreg, rs, imm, jump, jump_reg, branch ] MSB
+    localparam int BITWIDTH_NEL_STAGE1 = 1                                           // Valid
+                                        +_BITWIDTH_STRUCT_EX_PATH                    // Expath
+                                        +_BITWIDTH_FLOW_WINDOWS_PC                   // PC
+                                        +EX_INST_MICROOP_BITWIDTH                    // MicroOP
+                                        +_BITWIDTH_IS_INST_REGS                      // Rd
+                                        +1                                           // NewReg
+                                        +(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS) // Rs
+                                        +IS_INST_IMM                                 // IMM
+                                        +1 +1 +1;                                    // Jump, Jump Reg, Branch
+    
+    localparam int STARTPOINT_1EXPATH  = 1;
+    localparam int STARTPOINT_1PC      = STARTPOINT_1EXPATH+_BITWIDTH_STRUCT_EX_PATH;
+    localparam int STARTPOINT_1MICROOP = STARTPOINT_1PC+_BITWIDTH_FLOW_WINDOWS_PC;
+    localparam int STARTPOINT_1RD      = STARTPOINT_1MICROOP+EX_INST_MICROOP_BITWIDTH;
+    localparam int STARTPOINT_1NEWREG  = STARTPOINT_1RD+_BITWIDTH_IS_INST_REGS;
+    localparam int STARTPOINT_1RS      = STARTPOINT_1NEWREG+1;
+    localparam int STARTPOINT_1IMM     = STARTPOINT_1RS+(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS);
+    localparam int STARTPOINT_1JUMP    = STARTPOINT_1IMM+1;
+    localparam int STARTPOINT_1JUMPREG = STARTPOINT_1JUMP+1;
+    localparam int STARTPOINT_1BRANCH  = STARTPOINT_1JUMPREG+1;
+    
+    // LSB [ valid, expath, pc, microop, P_Rd, newreg, P_Rs, imm, jump, jump_reg, branch ] MSB
+    localparam int BITWIDTH_NEL_STAGE2 = 1                                           // Valid
+                                        +_BITWIDTH_STRUCT_EX_PATH                    // Expath
+                                        +_BITWIDTH_FLOW_WINDOWS_PC                   // PC
+                                        +EX_INST_MICROOP_BITWIDTH                    // MicroOP
+                                        +_BITWIDTH_IS_INST_REGS                      // P_Rd
+                                        +1                                           // NewReg
+                                        +(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS) // P_Rs
+                                        +IS_INST_IMM                                 // IMM
+                                        +1 +1 +1;                                    // Jump, Jump Reg, Branch
+
+    localparam int STARTPOINT_2EXPATH  = 1;
+    localparam int STARTPOINT_2PC      = STARTPOINT_2EXPATH+_BITWIDTH_STRUCT_EX_PATH;
+    localparam int STARTPOINT_2MICROOP = STARTPOINT_2PC+_BITWIDTH_FLOW_WINDOWS_PC;
+    localparam int STARTPOINT_2PRD     = STARTPOINT_2MICROOP+EX_INST_MICROOP_BITWIDTH;
+    localparam int STARTPOINT_2NEWREG  = STARTPOINT_2PRD+_BITWIDTH_IS_INST_REGS;
+    localparam int STARTPOINT_2PRS     = STARTPOINT_2NEWREG+1;
+    localparam int STARTPOINT_2IMM     = STARTPOINT_2PRS+(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS);
+    localparam int STARTPOINT_2JUMP    = STARTPOINT_2IMM+1;
+    localparam int STARTPOINT_2JUMPREG = STARTPOINT_2JUMP+1;
+    localparam int STARTPOINT_2BRANCH  = STARTPOINT_2JUMPREG+1;
+
+    logic [(BITWIDTH_NEL_STAGE1*STRUCT_DECODE_NEW_INST)-1:0] stage1, stage1_next;
+    logic [(BITWIDTH_NEL_STAGE2*STRUCT_DECODE_NEW_INST)-1:0] stage2, stage2_next;
+
+    integer idx_input, idx_stage1;
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (~reset_n) begin
+            stage1 <= 0;
+            stage2 <= 0;
+        end
+        else begin
+            stage1 <= stage1_next;
+            stage2 <= stage2_next;
+        end
+    end
+
+    logic [_BITWIDTH_FLOW_WINDOWS_PC-1:0] input_pc_list            [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]  input_phyreg_list        [0:STRUCT_DECODE_NEW_INST-1];
+
+    logic                                 input_dec_exception_list [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_STRUCT_EX_PATH-1:0]  input_dec_expath_list    [0:STRUCT_DECODE_NEW_INST-1];
+    logic [EX_INST_MICROOP_BITWIDTH-1:0]  input_dec_microop_list   [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_IS_INST_REGS-1:0]    input_dec_rd_list        [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 input_dec_newreg_list    [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_IS_INST_REGS-1:0]    input_dec_rs_list        [0:STRUCT_DECODE_NEW_INST-1][0:IS_INST_OPERANDS-1];
+    logic [IS_INST_IMM-1:0]               input_dec_imm_list       [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 input_dec_jump_list      [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 input_dec_jump_reg_list  [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 input_dec_branch_list    [0:STRUCT_DECODE_NEW_INST-1];
+
+    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]  input_wbc_done_phyreg    [0:STRUCT_EX_OUT_RESULT_SUM-1];
+
+    always_comb begin
+        // Split Inputs "STRUCT_DECODE_NEW_INST"
+        for (idx_input = 0; idx_input < STRUCT_DECODE_NEW_INST; idx_input = idx_input+1) begin
+            input_pc_list    [idx_input] = 
+                i_im_recv_pc[(_BITWIDTH_FLOW_WINDOWS_PC*idx_input) +: _BITWIDTH_FLOW_WINDOWS_PC];
+            input_phyreg_list[idx_input] = 
+                i_prm_phyreg_data[(_BITWIDTH_STRUCT_PHYREGS*idx_input) +: _BITWIDTH_STRUCT_PHYREGS];
+
+            input_dec_exception_list[idx_input] = 
+                i_dec_decode_exception[(BITWIDTH_NEL_STAGE1*idx_input)                       +: 1];
+            input_dec_expath_list   [idx_input] = 
+                i_dec_decode_expath   [((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1EXPATH)  +: _BITWIDTH_STRUCT_EX_PATH];
+            input_dec_microop_list  [idx_input] = 
+                i_dec_decode_microop  [((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1MICROOP) +: EX_INST_MICROOP_BITWIDTH];
+            input_dec_rd_list       [idx_input] = 
+                i_dec_decode_rd       [((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1RD)      +: _BITWIDTH_IS_INST_REGS];
+            input_dec_newreg_list   [idx_input] = 
+                i_dec_decode_newreg   [((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1NEWREG)  +: 1];
+            input_dec_rs_list       [idx_input] = 
+                i_dec_decode_rs       [((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1RS)      +: _BITWIDTH_IS_INST_REGS];
+            input_dec_imm_list      [idx_input] = 
+                i_dec_decode_imm      [((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1IMM)     +: IS_INST_IMM];
+            input_dec_jump_list     [idx_input] = 
+                i_dec_decode_jump     [((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1JUMP)    +: 1];
+            input_dec_jump_reg_list [idx_input] = 
+                i_dec_decode_jump_reg [((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1JUMPREG) +: 1];
+            input_dec_branch_list   [idx_input] = 
+                i_dec_decode_branch   [((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1BRANCH)  +: 1];
+        end
+
+        // Split Inputs "STRUCT_EX_OUT_RESULT_SUM"
+        for (idx_input = 0; idx_input < STRUCT_EX_OUT_RESULT_SUM; idx_input = idx_input+1) begin
+            input_wbc_done_phyreg[idx_input] = 
+                i_wbc_done_phyreg_data[(_BITWIDTH_STRUCT_PHYREGS*idx_input) +: _BITWIDTH_STRUCT_PHYREGS];
+        end
+
+        // Stage 1 Update
+        if (&i_prm_phyreg_valid) begin
+            for (idx_stage1 = 0; idx_stage1 < STRUCT_DECODE_NEW_INST; idx_stage1 = idx_stage1+1) begin
+                if (i_im_recv_inst_valid[idx_stage1]) begin
+                    stage1_next[(BITWIDTH_NEL_STAGE1*idx_stage1) +: BITWIDTH_NEL_STAGE1] = 
+                        {
+                            input_dec_branch_list   [idx_stage1],
+                            input_dec_jump_reg_list [idx_stage1],
+                            input_dec_jump_list     [idx_stage1],
+                            input_dec_imm_list      [idx_stage1],
+                            input_dec_rs_list       [idx_stage1],
+                            input_dec_newreg_list   [idx_stage1],
+                            input_dec_rd_list       [idx_stage1],
+                            input_dec_microop_list  [idx_stage1],
+                            input_pc_list           [idx_stage1],
+                            input_dec_expath_list   [idx_stage1],
+                            1'b1
+                        };
+                    o_im_recv_inst_get[idx_stage1] = 1'b1;
+                end
+                else begin
+                    stage1_next[(BITWIDTH_NEL_STAGE1*idx_stage1) +: BITWIDTH_NEL_STAGE1] = 
+                        {
+                            input_dec_branch_list   [idx_stage1],
+                            input_dec_jump_reg_list [idx_stage1],
+                            input_dec_jump_list     [idx_stage1],
+                            input_dec_imm_list      [idx_stage1],
+                            input_dec_rs_list       [idx_stage1],
+                            input_dec_newreg_list   [idx_stage1],
+                            input_dec_rd_list       [idx_stage1],
+                            input_dec_microop_list  [idx_stage1],
+                            input_pc_list           [idx_stage1],
+                            input_dec_expath_list   [idx_stage1],
+                            1'b0
+                        };
+                    o_im_recv_inst_get[idx_stage1] = 1'b0;
+                end
+            end
+        end
+        else begin
+            stage1_next        = stage1;
+            o_im_recv_inst_get = 0;
+        end
+    end
 
     regfile #(
         .DATA_WIDTH    (_BITWIDTH_STRUCT_PHYREGS),
@@ -135,9 +292,9 @@ module new_entry_logic #(
         .i_flush       (1'b0),
         .i_read_addr   (),
         .o_read_data   (),
-        .i_write_addr  (),
-        .i_write_en    (),
-        .i_write_data  ()
+        .i_write_addr  ({ i_wbc_done_phyreg_data,            }),
+        .i_write_en    ({ i_wbc_done_phyreg_valid,           }),
+        .i_write_data  ({ {STRUCT_EX_OUT_RESULT_SUM{1'b0}},  })
     );
 
 endmodule

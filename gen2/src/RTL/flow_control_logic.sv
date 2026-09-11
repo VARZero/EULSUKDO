@@ -57,7 +57,8 @@ module flow_control_logic #(
     localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
                                                          + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
-    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
+    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Flag
+                                                         + 1 // Jump Register Flag
                                                          + 1 // Branch Flag
                                                          + IS_INST_PC_BITWIDTH, // New Program Counter
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS

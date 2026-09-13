@@ -1,0 +1,5 @@
+/obj_dir/
+/eulsukdo_sequence.vcd
+/obj_ipc_test/
+/results/build_*/
+/results/*.log

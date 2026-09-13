@@ -21,7 +21,7 @@ module eulsukdo_scheduler #(
     parameter int STRUCT_EX_OUT_RESULT[STRUCT_EX_CORES] = {1, 1, 1, 1, 1},
     parameter int STRUCT_EX_OUT_RESULT_SUM              = 5,
     parameter int STRUCT_EX_BRANCH                      = 1,
-    parameter int STRUCT_PRM_ENTRY_UPDATE                          = 5,
+    parameter int STRUCT_PRM_ENTRY_UPDATE               = 5,
     parameter int STRUCT_PRM_ENTRY_BUFFER               = 4,
     parameter int STRUCT_UNALLOCATE_PHYREG              = 4,
     parameter int STRUCT_FLOW_WINDOWS                   = 8,
@@ -29,13 +29,16 @@ module eulsukdo_scheduler #(
 
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
+    localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
     localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
     localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
     localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
     localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH,
     localparam int _BITWIDTH_INTERNAL_INST_WIDTH        = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd
@@ -43,6 +46,7 @@ module eulsukdo_scheduler #(
                                                          + IS_INST_OPERANDS, // Ready1..n
     localparam int _BITWIDTH_EX_INST_WIDTH              = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd
@@ -53,7 +57,8 @@ module eulsukdo_scheduler #(
     localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
                                                          + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
-    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
+    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Flag
+                                                         + 1 // Jump Register Flag
                                                          + 1 // Branch Flag
                                                          + IS_INST_PC_BITWIDTH, // New Program Counter
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
@@ -66,6 +71,7 @@ module eulsukdo_scheduler #(
     output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_req_pc_valid,
     input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_req_pc_get,
     output wire [(STRUCT_DECODE_NEW_INST * _BITWIDTH_FLOW_WINDOWS_PC)-1:0]                   o_im_req_pc,
+    
     // Instruction Receive
     input  wire [STRUCT_DECODE_NEW_INST-1:0]                                                 i_im_recv_inst_valid,
     output wire [STRUCT_DECODE_NEW_INST-1:0]                                                 o_im_recv_inst_get,
@@ -112,11 +118,11 @@ module eulsukdo_scheduler #(
     // NEL -> IST : New Internal Instructions
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_ist_new_inst_valid;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_ist_new_inst_get;
-    wire [(STRUCT_EX_CORES *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                            nel_ist_new_inst_data;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                     nel_ist_new_inst_data;
 
     // NEL -> FCL : Retired Physical Registers
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_fcl_retired_phyreg_valid;
-    wire [(STRUCT_EX_CORES *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]                      nel_fcl_retired_phyreg_data;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]               nel_fcl_retired_phyreg_data;
     
     // NEL -> FCL : Jump/Branch Information
     wire                                                                                      nel_fcl_jumpbranch_valid;
@@ -124,16 +130,15 @@ module eulsukdo_scheduler #(
 
     // PRM -> IST : Ready Phyreg/ISTmap pair
     wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        prm_ist_ready_phyreg_valid;
-    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                         prm_ist_ready_phyreg_data;
+    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]                              prm_ist_ready_phyreg_data;
 
     // IST -> RS : Executable (All phyreg in instruction are ready) Internal Instructions
     wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_valid;
-    wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_get;
     wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] ist_rs_ready_inst_data;
 
     // IST -> PRM : Wait Phyreg/ISTmap pair
-    wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                                        ist_prm_wait_phyreg_valid;
-    wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]                         ist_prm_wait_phyreg_data;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         ist_prm_wait_phyreg_valid;
+    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_READY_PRM) )-1:0]                               ist_prm_wait_phyreg_data;
 
     // RS -> EX : Wait EX Instructions
     wire [STRUCT_EX_CORES-1:0]                                                                rs_ex_wait_inst_valid;
@@ -241,7 +246,6 @@ module eulsukdo_scheduler #(
         
         // Executable (All phyreg in instruction are ready) Internal Instruction Output (RS)
         .o_rs_ready_inst_valid          (ist_rs_ready_inst_valid),
-        .i_rs_ready_inst_get            (ist_rs_ready_inst_get),
         .o_rs_ready_inst_data           (ist_rs_ready_inst_data),
 
         // Wait Physical Registers Output (PRM)
@@ -256,7 +260,6 @@ module eulsukdo_scheduler #(
 
         // Executable (All phyreg in instruction are ready) Internal Instruction Input (IST)
         .i_ist_ready_inst_valid         (ist_rs_ready_inst_valid),
-        .o_ist_ready_inst_get           (ist_rs_ready_inst_get),
         .i_ist_ready_inst_data          (ist_rs_ready_inst_data),
 
         // Wait EX Instruction Output (EX)

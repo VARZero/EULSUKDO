@@ -29,13 +29,16 @@ module write_back_concatenation #(
 
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
+    localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
     localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
     localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
     localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
     localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH,
     localparam int _BITWIDTH_INTERNAL_INST_WIDTH        = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd
@@ -43,6 +46,7 @@ module write_back_concatenation #(
                                                          + IS_INST_OPERANDS, // Ready1..n
     localparam int _BITWIDTH_EX_INST_WIDTH              = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd

@@ -29,13 +29,16 @@ module flow_control_logic #(
 
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
+    localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
     localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
     localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
     localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
     localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH,
     localparam int _BITWIDTH_INTERNAL_INST_WIDTH        = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd
@@ -43,6 +46,7 @@ module flow_control_logic #(
                                                          + IS_INST_OPERANDS, // Ready1..n
     localparam int _BITWIDTH_EX_INST_WIDTH              = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
                                                          + EX_INST_MICROOP_BITWIDTH
                                                          + IS_INST_IMM
                                                          + _BITWIDTH_STRUCT_PHYREGS // rd
@@ -53,35 +57,36 @@ module flow_control_logic #(
     localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
                                                          + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
-    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
+    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Flag
+                                                         + 1 // Jump Register Flag
                                                          + 1 // Branch Flag
                                                          + IS_INST_PC_BITWIDTH, // New Program Counter
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
-    input  wire                                                                  clk,
-    input  wire                                                                  reset_n,
+    input  wire                                                                        clk,
+    input  wire                                                                        reset_n,
         
     // Done PC Input (WBC)
-    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                   i_wbc_done_pc_valid,
-    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_EX_DONE_PC) )-1:0] i_wbc_done_pc_data,
+    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                         i_wbc_done_pc_valid,
+    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_EX_DONE_PC) )-1:0]       i_wbc_done_pc_data,
         
     // Jump/Branch Information Input (NEL)
-    input  wire                                                                  i_nel_jumpbranch_valid,
-    input  wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                          i_nel_jumpbranch_data,
+    input  wire                                                                        i_nel_jumpbranch_valid,
+    input  wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                                i_nel_jumpbranch_data,
 
     // Retired Physical Registers Input (NEL)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                     i_nel_retired_phyreg_valid,
-    input  wire [(STRUCT_EX_CORES *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0]  i_nel_retired_phyreg_data,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                           i_nel_retired_phyreg_valid,
+    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0] i_nel_retired_phyreg_data,
 
     // Request New Instruction Output (IM)
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                     o_im_req_pc_valid,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                     i_im_req_pc_get,
-    output wire [(STRUCT_DECODE_NEW_INST *(IS_INST_PC_BITWIDTH) )-1:0]           o_im_req_pc,
+    output wire [STRUCT_DECODE_NEW_INST-1:0]                                           o_im_req_pc_valid,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                           i_im_req_pc_get,
+    output wire [(STRUCT_DECODE_NEW_INST *(IS_INST_PC_BITWIDTH) )-1:0]                 o_im_req_pc,
 
     // Unallocate Retired Registers Output (PRM)
-    output wire [STRUCT_UNALLOCATE_PHYREG-1:0]                                   o_prm_unallocate_phyreg_valid,
-    output wire [(STRUCT_UNALLOCATE_PHYREG *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]    o_prm_unallocate_phyreg_data
+    output wire [STRUCT_UNALLOCATE_PHYREG-1:0]                                         o_prm_unallocate_phyreg_valid,
+    output wire [(STRUCT_UNALLOCATE_PHYREG *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]          o_prm_unallocate_phyreg_data
 );
 
 endmodule

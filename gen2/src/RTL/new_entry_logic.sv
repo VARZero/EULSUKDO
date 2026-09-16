@@ -440,8 +440,41 @@ module new_entry_logic #(
                 s2in_jump_reg_list[idx_stage2_0],
                 s2in_branch_list  [idx_stage2_0]
             };
-            
+
         end
+
+        // Out - Stage 2 Out
+        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+            s2out_valid_list    [idx_stage2_0] = stage2[BITWIDTH_NEL_STAGE2*idx_stage2_0];
+            s2out_expath_list   [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2EXPATH ) +: _BITWIDTH_STRUCT_EX_PATH];
+            s2out_pc_list       [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2PC     ) +: _BITWIDTH_FLOW_WINDOWS_PC];
+            s2out_microop_list  [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2MICROOP) +: EX_INST_MICROOP_BITWIDTH];
+            s2out_prd_list      [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2PRD    ) +: _BITWIDTH_STRUCT_PHYREGS];
+            s2out_newreg_list   [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2NEWREG ) +: 1];
+            s2out_prs_list      [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2PRS    ) +: (_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS)];
+            s2out_imm_list      [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2IMM    ) +: IS_INST_IMM];
+            s2out_jump_list     [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2JUMP   ) +: 1];
+            s2out_jump_reg_list [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2JUMPREG) +: 1];
+            s2out_branch_list   [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2BRANCH ) +: 1];
+        end
+
+        // Out - Ready
+
+        // Out - Output
+        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+            o_ist_new_inst_valid[idx_stage2_0] = s2out_valid_list[idx_stage2_0];
+            o_ist_new_inst_data [(_BITWIDTH_INTERNAL_INST_WIDTH*idx_stage2_0) +: _BITWIDTH_INTERNAL_INST_WIDTH]
+                = {
+                    ,
+                    s2out_prs_list    [idx_stage2_0],
+                    s2out_prd_list    [idx_stage2_0],
+                    s2out_imm_list    [idx_stage2_0],
+                    s2out_microop_list[idx_stage2_0],
+                    s2out_expath_list [idx_stage2_0],
+                    s2out_pc_list     [idx_stage2_0]
+                };
+        end
+        
     end
 
     regfile #(

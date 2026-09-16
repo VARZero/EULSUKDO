@@ -200,13 +200,41 @@ module new_entry_logic #(
                                           s1out_rd_all;
     logic [(_BITWIDTH_IS_INST_REGS*IS_INST_OPERANDS*STRUCT_DECODE_NEW_INST)-1:0]
                                           s1out_rs_all;
+    logic [(_BITWIDTH_STRUCT_PHYREGS*STRUCT_DECODE_NEW_INST)-1:0]
+                                          prd_mapping_all;
     logic [(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS*STRUCT_DECODE_NEW_INST)-1:0]
-                                          prs_all;
-
+                                          prs_mapping_all, prs_result_all;
     logic [STRUCT_DECODE_NEW_INST-1:0]    s1out_newreg_all, real_newreg;
 
+    logic                                 s2in_valid_list          [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_STRUCT_EX_PATH-1:0]  s2in_expath_list         [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_FLOW_WINDOWS_PC-1:0] s2in_pc_list             [0:STRUCT_DECODE_NEW_INST-1];
+    logic [EX_INST_MICROOP_BITWIDTH-1:0]  s2in_microop_list        [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]  s2in_prd_list            [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 s2in_newreg_list         [0:STRUCT_DECODE_NEW_INST-1];
+    logic [(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS)-1:0]    
+                                          s2in_prs_list            [0:STRUCT_DECODE_NEW_INST-1];
+    logic [IS_INST_IMM-1:0]               s2in_imm_list            [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 s2in_jump_list           [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 s2in_jump_reg_list       [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 s2in_branch_list         [0:STRUCT_DECODE_NEW_INST-1];
+
+    logic                                 s2out_valid_list         [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_STRUCT_EX_PATH-1:0]  s2out_expath_list        [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_FLOW_WINDOWS_PC-1:0] s2out_pc_list            [0:STRUCT_DECODE_NEW_INST-1];
+    logic [EX_INST_MICROOP_BITWIDTH-1:0]  s2out_microop_list       [0:STRUCT_DECODE_NEW_INST-1];
+    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]  s2out_prd_list           [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 s2out_newreg_list        [0:STRUCT_DECODE_NEW_INST-1];
+    logic [(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS)-1:0]    
+                                          s2out_prs_list           [0:STRUCT_DECODE_NEW_INST-1];
+    logic [IS_INST_IMM-1:0]               s2out_imm_list           [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 s2out_jump_list          [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 s2out_jump_reg_list      [0:STRUCT_DECODE_NEW_INST-1];
+    logic                                 s2out_branch_list        [0:STRUCT_DECODE_NEW_INST-1];
+
     logic [_BITWIDTH_IS_INST_REGS-1:0]    ref_reg, comp_reg;
-    logic [STRUCT_DECODE_NEW_INST-1:0]    reg_map_suffix           [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1]
+    logic [STRUCT_DECODE_NEW_INST-1:0]    reg_dest_map_suffix      [0:STRUCT_DECODE_NEW_INST-1]
+    logic [STRUCT_DECODE_NEW_INST-1:0]    reg_src_map_suffix       [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1]
 
     always_comb begin
         // Split Inputs "STRUCT_DECODE_NEW_INST"
@@ -313,19 +341,26 @@ module new_entry_logic #(
 
         // Stage 2 - Get Mapping Input Registers
             // Initial
+        real_newreg = s1out_newreg_all;
+        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+            reg_dest_map_suffix[idx_stage2_0] = 0;
+        end
         for (idx_stage2_0 = 0; idx_stage2_0 < (STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS); idx_stage2_0 = idx_stage2_0+1) begin
-            reg_map_suffix[idx_stage2_0] = 0;
+            reg_src_map_suffix[idx_stage2_0] = 0;
         end
             // Real Action - Suffix AND
         for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
             ref_reg = s1out_dec_rd_list[idx_stage2_0];
 
-            real_newreg[idx_stage2_0] = s1out_newreg_all[idx_stage2_0];
+            reg_dest_map_suffix[idx_stage2_0] = 0;
             for (idx_stage2_1 = 0; idx_stage2_1 < STRUCT_DECODE_NEW_INST; idx_stage2_1 = idx_stage2_1+1) begin
                 comp_reg = s1out_dec_rd_list[idx_stage2_1];
                 if ( (s1out_valid_list[idx_stage2_0]) && (s1out_valid_list[idx_stage2_1]) && 
                      (s1out_dec_newreg_list[idx_stage2_0]) && (s1out_dec_newreg_list[idx_stage2_1]) && 
                      (ref_reg != 0) && (comp_reg != 0) && (ref_reg == comp_reg) ) begin
+
+                    reg_dest_map_suffix[idx_stage2_1]               = 0;
+                    reg_dest_map_suffix[idx_stage2_1][idx_stage2_0] = 1'b1;
 
                     real_newreg[idx_stage2_0] = 1'b0;
                 end
@@ -337,20 +372,75 @@ module new_entry_logic #(
                      (s1out_dec_newreg_list[idx_stage2_0]) && 
                      (ref_reg != 0) && (comp_reg != 0) && (ref_reg == comp_reg) ) begin
 
-                    reg_map_suffix[idx_stage2_1]               = 0;
-                    reg_map_suffix[idx_stage2_1][idx_stage2_0] = 1'b1;
+                    reg_src_map_suffix[idx_stage2_1]               = 0;
+                    reg_src_map_suffix[idx_stage2_1][idx_stage2_0] = 1'b1;
                 end
             end
         end
 
-        // Stage 2 - Mapping Registers
-        for (idx_stage2_0 = 0; idx_stage2_0 < (STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS); idx_stage2_0 = idx_stage2_0+1) begin
-            if ( |reg_map_suffix[idx_stage2_0] ) begin
-                 = prs_all[];
+        // Stage 2 - Other Information Input
+        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+            s2in_valid_list   [idx_stage2_0] = s1out_valid_list       [idx_stage2_0];
+            s2in_expath_list  [idx_stage2_0] = s1out_dec_expath_list  [idx_stage2_0];
+            s2in_pc_list      [idx_stage2_0] = s1out_pc_list          [idx_stage2_0];
+            s2in_microop_list [idx_stage2_0] = s1out_dec_microop_list [idx_stage2_0];
+            s2in_newreg_list  [idx_stage2_0] = s1out_dec_newreg_list  [idx_stage2_0];
+            s2in_imm_list     [idx_stage2_0] = s1out_dec_imm_list     [idx_stage2_0];
+            s2in_jump_list    [idx_stage2_0] = s1out_dec_jump_list    [idx_stage2_0];
+            s2in_jump_reg_list[idx_stage2_0] = s1out_dec_jump_reg_list[idx_stage2_0];
+            s2in_branch_list  [idx_stage2_0] = s1out_dec_branch_list  [idx_stage2_0];
+        end
+
+        // Stage 2 - Mapping Register Destination
+        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+            if ( |reg_dest_map_suffix[idx_stage2_0] ) begin
+                s2in_prd_list[idx_stage2_0] = 0;
+                for (idx_stage2_1 = 0; idx_stage2_1 < STRUCT_DECODE_NEW_INST; idx_stage2_1 = idx_stage2_1+1) begin
+                    if (reg_dest_map_suffix[idx_stage2_0][idx_stage2_1])
+                        s2in_prd_list[idx_stage2_0] 
+                            = i_prm_phyreg_data[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_1) +: _BITWIDTH_STRUCT_PHYREGS];
+                end
+            end
+            else if (real_newreg[idx_stage2_0]) begin
+                s2in_prd_list[idx_stage2_0] = prd_mapping_all[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_0) +: _BITWIDTH_STRUCT_PHYREGS];
             end
             else begin
-                
+                s2in_prd_list[idx_stage2_0] = 0;
             end
+        end
+
+        // Stage 2 - Mapping Registers Source 
+        for (idx_stage2_0 = 0; idx_stage2_0 < (STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS); idx_stage2_0 = idx_stage2_0+1) begin
+            if ( |reg_src_map_suffix[idx_stage2_0] ) begin
+                s2in_prs_list[idx_stage2_0] = 0;
+                for (idx_stage2_1 = 0; idx_stage2_1 < STRUCT_DECODE_NEW_INST; idx_stage2_1 = idx_stage2_1+1) begin
+                    if (reg_src_map_suffix[idx_stage2_0][idx_stage2_1])
+                        s2in_prs_list[idx_stage2_0] 
+                            = i_prm_phyreg_data[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_1) +: _BITWIDTH_STRUCT_PHYREGS];
+                end
+            end
+            else begin
+                s2in_prs_list[idx_stage2_0] = prs_mapping_all[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_0) +: _BITWIDTH_STRUCT_PHYREGS];
+            end
+        end
+
+        // Stage 2 - Input Register
+        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+
+            stage2_next[(BITWIDTH_NEL_STAGE2*idx_stage2_0) +: BITWIDTH_NEL_STAGE2] = {
+                s2in_valid_list   [idx_stage2_0],
+                s2in_expath_list  [idx_stage2_0],
+                s2in_pc_list      [idx_stage2_0],
+                s2in_microop_list [idx_stage2_0],
+                s2in_prd_list     [idx_stage2_0],
+                s2in_newreg_list  [idx_stage2_0],
+                s2in_prs_list     [idx_stage2_0],
+                s2in_imm_list     [idx_stage2_0],
+                s2in_jump_list    [idx_stage2_0],
+                s2in_jump_reg_list[idx_stage2_0],
+                s2in_branch_list  [idx_stage2_0]
+            };
+            
         end
     end
 
@@ -365,7 +455,7 @@ module new_entry_logic #(
         .reset_n       (reset_n),
         .i_flush       (1'b0),
         .i_read_addr   (s1out_rs_all),
-        .o_read_data   (prs_all),
+        .o_read_data   (prs_mapping_all),
         .i_write_addr  (s1out_rd_all),
         .i_write_en    (real_newreg),
         .i_write_data  (i_prm_phyreg_data)

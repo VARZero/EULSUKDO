@@ -231,8 +231,16 @@ module new_entry_logic #(
     logic                                 s2out_jump_list          [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 s2out_jump_reg_list      [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 s2out_branch_list        [0:STRUCT_DECODE_NEW_INST-1];
+    
+    logic [(_BITWIDTH_STRUCT_PHYREGS*STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]    
+                                          s2out_prs_all;
+    
+    logic [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]
+                                          ready_table_out;
+    logic [IS_INST_OPERANDS-1:0]          last_ready               [0:STRUCT_DECODE_NEW_INST-1];
 
     logic [_BITWIDTH_IS_INST_REGS-1:0]    ref_reg, comp_reg;
+    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]  ref_preg;
     logic [STRUCT_DECODE_NEW_INST-1:0]    reg_dest_map_suffix      [0:STRUCT_DECODE_NEW_INST-1]
     logic [STRUCT_DECODE_NEW_INST-1:0]    reg_src_map_suffix       [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1]
 
@@ -457,21 +465,46 @@ module new_entry_logic #(
             s2out_jump_reg_list [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2JUMPREG) +: 1];
             s2out_branch_list   [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2BRANCH ) +: 1];
         end
+        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+            s2out_prs_all[((_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS)*idx_stage2_0) +: (_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS)]
+                = s2out_prs_list[idx_stage2_0];
+        end
 
         // Out - Ready
+        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+            last_ready[idx_stage2_0] = 0;
+            for (idx_stage2_1 = 0; idx_stage2_1 < IS_INST_OPERANDS; idx_stage2_1 = idx_stage2_1+1) begin
+                ref_preg = s2out_prs_list[(_BITWIDTH_STRUCT_PHYREGS*((IS_INST_OPERANDS*idx_stage2_0)+idx_stage2_1)) +: _BITWIDTH_STRUCT_PHYREGS];
+                
+                if ( ~s2out_valid_list[idx_stage2_0] )
+                    last_ready[idx_stage2_0][idx_stage2_1] = 1'b0;
+                else if (ref_preg == 0)
+                    last_ready[idx_stage2_0][idx_stage2_1] = 1'b1;
+                else
+                    last_ready[idx_stage2_0][idx_stage2_1] = ready_table_out[(IS_INST_OPERANDS*idx_stage2_0)+idx_stage2_1];
+                
+                for (idx_stage2_2 = 0; idx_stage2_2 < STRUCT_EX_OUT_RESULT_SUM; idx_stage2_2 = idx_stage2_2+1) begin
+                    if ( ( i_wbc_done_phyreg_valid[idx_stage2_2] )
+                         && ( ref_preg == i_wbc_done_phyreg_valid[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_2) +: _BITWIDTH_STRUCT_PHYREGS] ) ) begin
+
+                        last_ready[idx_stage2_0][idx_stage2_1] = 1'b1;
+                    end
+                end
+            end
+        end
 
         // Out - Output
         for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
             o_ist_new_inst_valid[idx_stage2_0] = s2out_valid_list[idx_stage2_0];
             o_ist_new_inst_data [(_BITWIDTH_INTERNAL_INST_WIDTH*idx_stage2_0) +: _BITWIDTH_INTERNAL_INST_WIDTH]
                 = {
-                    ,
-                    s2out_prs_list    [idx_stage2_0],
-                    s2out_prd_list    [idx_stage2_0],
-                    s2out_imm_list    [idx_stage2_0],
-                    s2out_microop_list[idx_stage2_0],
-                    s2out_expath_list [idx_stage2_0],
-                    s2out_pc_list     [idx_stage2_0]
+                    last_ready         [idx_stage2_0],
+                    s2out_prs_list     [idx_stage2_0],
+                    s2out_prd_list     [idx_stage2_0],
+                    s2out_imm_list     [idx_stage2_0],
+                    s2out_microop_list [idx_stage2_0],
+                    s2out_expath_list  [idx_stage2_0],
+                    s2out_pc_list      [idx_stage2_0]
                 };
         end
         
@@ -504,10 +537,10 @@ module new_entry_logic #(
         .clk           (clk),
         .reset_n       (reset_n),
         .i_flush       (1'b0),
-        .i_read_addr   (),
-        .o_read_data   (),
-        .i_write_addr  ({ i_wbc_done_phyreg_data,            }),
-        .i_write_en    ({ i_wbc_done_phyreg_valid,           }),
+        .i_read_addr   (s2out_prs_all),
+        .o_read_data   (ready_table_out),
+        .i_write_addr  ({ i_wbc_done_phyreg_data,           s1out_rd_all                   }),
+        .i_write_en    ({ i_wbc_done_phyreg_valid,          real_newreg                    }),
         .i_write_data  ({ {STRUCT_EX_OUT_RESULT_SUM{1'b1}}, {STRUCT_DECODE_NEW_INST{1'b0}} })
     );
 

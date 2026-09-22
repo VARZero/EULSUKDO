@@ -113,7 +113,7 @@ module new_entry_logic #(
                                         +EX_INST_MICROOP_BITWIDTH                    // MicroOP
                                         +_BITWIDTH_IS_INST_REGS                      // Rd
                                         +1                                           // NewReg
-                                        +(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS) // Rs
+                                        +(_BITWIDTH_IS_INST_REGS*IS_INST_OPERANDS) // Rs
                                         +IS_INST_IMM                                 // IMM
                                         +1 +1 +1;                                    // Jump, Jump Reg, Branch
     
@@ -123,8 +123,8 @@ module new_entry_logic #(
     localparam int STARTPOINT_1RD      = STARTPOINT_1MICROOP+EX_INST_MICROOP_BITWIDTH;
     localparam int STARTPOINT_1NEWREG  = STARTPOINT_1RD+_BITWIDTH_IS_INST_REGS;
     localparam int STARTPOINT_1RS      = STARTPOINT_1NEWREG+1;
-    localparam int STARTPOINT_1IMM     = STARTPOINT_1RS+(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS);
-    localparam int STARTPOINT_1JUMP    = STARTPOINT_1IMM+1;
+    localparam int STARTPOINT_1IMM     = STARTPOINT_1RS+(_BITWIDTH_IS_INST_REGS*IS_INST_OPERANDS);
+    localparam int STARTPOINT_1JUMP    = STARTPOINT_1IMM+IS_INST_IMM;
     localparam int STARTPOINT_1JUMPREG = STARTPOINT_1JUMP+1;
     localparam int STARTPOINT_1BRANCH  = STARTPOINT_1JUMPREG+1;
     
@@ -133,7 +133,7 @@ module new_entry_logic #(
                                         +_BITWIDTH_STRUCT_EX_PATH                    // Expath
                                         +_BITWIDTH_FLOW_WINDOWS_PC                   // PC
                                         +EX_INST_MICROOP_BITWIDTH                    // MicroOP
-                                        +_BITWIDTH_IS_INST_REGS                      // P_Rd
+                                        +_BITWIDTH_STRUCT_PHYREGS                      // P_Rd
                                         +1                                           // NewReg
                                         +(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS) // P_Rs
                                         +IS_INST_IMM                                 // IMM
@@ -143,10 +143,10 @@ module new_entry_logic #(
     localparam int STARTPOINT_2PC      = STARTPOINT_2EXPATH+_BITWIDTH_STRUCT_EX_PATH;
     localparam int STARTPOINT_2MICROOP = STARTPOINT_2PC+_BITWIDTH_FLOW_WINDOWS_PC;
     localparam int STARTPOINT_2PRD     = STARTPOINT_2MICROOP+EX_INST_MICROOP_BITWIDTH;
-    localparam int STARTPOINT_2NEWREG  = STARTPOINT_2PRD+_BITWIDTH_IS_INST_REGS;
+    localparam int STARTPOINT_2NEWREG  = STARTPOINT_2PRD+_BITWIDTH_STRUCT_PHYREGS;
     localparam int STARTPOINT_2PRS     = STARTPOINT_2NEWREG+1;
     localparam int STARTPOINT_2IMM     = STARTPOINT_2PRS+(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS);
-    localparam int STARTPOINT_2JUMP    = STARTPOINT_2IMM+1;
+    localparam int STARTPOINT_2JUMP    = STARTPOINT_2IMM+IS_INST_IMM;
     localparam int STARTPOINT_2JUMPREG = STARTPOINT_2JUMP+1;
     localparam int STARTPOINT_2BRANCH  = STARTPOINT_2JUMPREG+1;
 
@@ -167,7 +167,6 @@ module new_entry_logic #(
     end
 
     logic [_BITWIDTH_FLOW_WINDOWS_PC-1:0] input_pc_list            [0:STRUCT_DECODE_NEW_INST-1];
-    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]  input_phyreg_list        [0:STRUCT_DECODE_NEW_INST-1];
 
     logic                                 input_dec_exception_list [0:STRUCT_DECODE_NEW_INST-1];
     logic [_BITWIDTH_STRUCT_EX_PATH-1:0]  input_dec_expath_list    [0:STRUCT_DECODE_NEW_INST-1];
@@ -175,13 +174,15 @@ module new_entry_logic #(
     logic [_BITWIDTH_IS_INST_REGS-1:0]    input_dec_rd_list        [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 input_dec_newreg_list    [0:STRUCT_DECODE_NEW_INST-1];
     logic [(_BITWIDTH_IS_INST_REGS*IS_INST_OPERANDS)-1:0]    
-    logic                                 input_dec_rs_list        [0:STRUCT_DECODE_NEW_INST-1];
+                                          input_dec_rs_list        [0:STRUCT_DECODE_NEW_INST-1];
     logic [IS_INST_IMM-1:0]               input_dec_imm_list       [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 input_dec_jump_list      [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 input_dec_jump_reg_list  [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 input_dec_branch_list    [0:STRUCT_DECODE_NEW_INST-1];
 
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0]  input_wbc_done_phyreg    [0:STRUCT_EX_OUT_RESULT_SUM-1];
+
+    logic                                 input_jump_branch;
     
     logic                                 s1out_valid_list         [0:STRUCT_DECODE_NEW_INST-1];
     logic [_BITWIDTH_STRUCT_EX_PATH-1:0]  s1out_dec_expath_list    [0:STRUCT_DECODE_NEW_INST-1];
@@ -196,7 +197,7 @@ module new_entry_logic #(
     logic                                 s1out_dec_jump_reg_list  [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 s1out_dec_branch_list    [0:STRUCT_DECODE_NEW_INST-1];
 
-    logic [(_BITWIDTH_STRUCT_PHYREGS*STRUCT_DECODE_NEW_INST)-1:0]
+    logic [(_BITWIDTH_IS_INST_REGS*STRUCT_DECODE_NEW_INST)-1:0]
                                           s1out_rd_all;
     logic [(_BITWIDTH_IS_INST_REGS*IS_INST_OPERANDS*STRUCT_DECODE_NEW_INST)-1:0]
                                           s1out_rs_all;
@@ -204,7 +205,7 @@ module new_entry_logic #(
                                           prd_mapping_all;
     logic [(_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS*STRUCT_DECODE_NEW_INST)-1:0]
                                           prs_mapping_all, prs_result_all;
-    logic [STRUCT_DECODE_NEW_INST-1:0]    s1out_newreg_all, real_newreg;
+    logic [STRUCT_DECODE_NEW_INST-1:0]    s1out_newreg_all, real_newreg, retired_regs;
 
     logic                                 s2in_valid_list          [0:STRUCT_DECODE_NEW_INST-1];
     logic [_BITWIDTH_STRUCT_EX_PATH-1:0]  s2in_expath_list         [0:STRUCT_DECODE_NEW_INST-1];
@@ -218,6 +219,10 @@ module new_entry_logic #(
     logic                                 s2in_jump_list           [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 s2in_jump_reg_list       [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 s2in_branch_list         [0:STRUCT_DECODE_NEW_INST-1];
+    
+    logic [(_BITWIDTH_STRUCT_PHYREGS*STRUCT_DECODE_NEW_INST)-1:0]    
+                                          s2in_prd_all;
+    logic [STRUCT_DECODE_NEW_INST-1:0]    s2in_newreg_all;
 
     logic                                 s2out_valid_list         [0:STRUCT_DECODE_NEW_INST-1];
     logic [_BITWIDTH_STRUCT_EX_PATH-1:0]  s2out_expath_list        [0:STRUCT_DECODE_NEW_INST-1];
@@ -232,8 +237,11 @@ module new_entry_logic #(
     logic                                 s2out_jump_reg_list      [0:STRUCT_DECODE_NEW_INST-1];
     logic                                 s2out_branch_list        [0:STRUCT_DECODE_NEW_INST-1];
     
+    logic [(_BITWIDTH_STRUCT_PHYREGS*STRUCT_DECODE_NEW_INST)-1:0]    
+                                          s2out_prd_all;
     logic [(_BITWIDTH_STRUCT_PHYREGS*STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]    
                                           s2out_prs_all;
+    logic [STRUCT_DECODE_NEW_INST-1:0]    s2out_valid_all, s2out_newreg_all;
     
     logic [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]
                                           ready_table_out;
@@ -241,16 +249,14 @@ module new_entry_logic #(
 
     logic [_BITWIDTH_IS_INST_REGS-1:0]    ref_reg, comp_reg;
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0]  ref_preg;
-    logic [STRUCT_DECODE_NEW_INST-1:0]    reg_dest_map_suffix      [0:STRUCT_DECODE_NEW_INST-1]
-    logic [STRUCT_DECODE_NEW_INST-1:0]    reg_src_map_suffix       [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1]
+    logic [STRUCT_DECODE_NEW_INST-1:0]    reg_dest_map_suffix      [0:STRUCT_DECODE_NEW_INST-1];
+    logic [STRUCT_DECODE_NEW_INST-1:0]    reg_src_map_suffix       [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
 
     always_comb begin
         // Split Inputs "STRUCT_DECODE_NEW_INST"
         for (idx_input = 0; idx_input < STRUCT_DECODE_NEW_INST; idx_input = idx_input+1) begin
             input_pc_list    [idx_input] = 
                 i_im_recv_pc[(_BITWIDTH_FLOW_WINDOWS_PC*idx_input) +: _BITWIDTH_FLOW_WINDOWS_PC];
-            input_phyreg_list[idx_input] = 
-                i_prm_phyreg_data[(_BITWIDTH_STRUCT_PHYREGS*idx_input) +: _BITWIDTH_STRUCT_PHYREGS];
 
             input_dec_exception_list[idx_input] = 
                 i_dec_decode_exception[idx_input];
@@ -281,7 +287,8 @@ module new_entry_logic #(
         end
 
         // Stage 1 Update
-        if (&i_prm_phyreg_valid) begin
+        input_jump_branch = 0;
+        if (&i_ist_new_inst_get) begin
             for (idx_stage1 = 0; idx_stage1 < STRUCT_DECODE_NEW_INST; idx_stage1 = idx_stage1+1) begin
                 if (i_im_recv_inst_valid[idx_stage1]) begin
                     stage1_next[(BITWIDTH_NEL_STAGE1*idx_stage1) +: BITWIDTH_NEL_STAGE1] = 
@@ -296,27 +303,18 @@ module new_entry_logic #(
                             input_dec_microop_list  [idx_stage1],
                             input_pc_list           [idx_stage1],
                             input_dec_expath_list   [idx_stage1],
-                            1'b1
+                            ~input_jump_branch
                         };
-                    o_im_recv_inst_get[idx_stage1] = 1'b1;
+                    o_im_recv_inst_get[idx_stage1] = ~input_jump_branch;
                 end
                 else begin
-                    stage1_next[(BITWIDTH_NEL_STAGE1*idx_stage1) +: BITWIDTH_NEL_STAGE1] = 
-                        {
-                            input_dec_branch_list   [idx_stage1],
-                            input_dec_jump_reg_list [idx_stage1],
-                            input_dec_jump_list     [idx_stage1],
-                            input_dec_imm_list      [idx_stage1],
-                            input_dec_rs_list       [idx_stage1],
-                            input_dec_newreg_list   [idx_stage1],
-                            input_dec_rd_list       [idx_stage1],
-                            input_dec_microop_list  [idx_stage1],
-                            input_pc_list           [idx_stage1],
-                            input_dec_expath_list   [idx_stage1],
-                            1'b0
-                        };
+                    stage1_next[(BITWIDTH_NEL_STAGE1*idx_stage1) +: BITWIDTH_NEL_STAGE1] = 0;
                     o_im_recv_inst_get[idx_stage1] = 1'b0;
                 end
+                
+                input_jump_branch =
+                    input_jump_branch || ( i_im_recv_inst_valid[idx_stage1] &&
+                    (input_dec_branch_list[idx_stage1] || input_dec_jump_reg_list[idx_stage1] || input_dec_jump_list[idx_stage1]) );
             end
         end
         else begin
@@ -326,17 +324,17 @@ module new_entry_logic #(
 
         // Stage 1 Register Output
         for (idx_stage1 = 0; idx_stage1 < STRUCT_DECODE_NEW_INST; idx_stage1 = idx_stage1+1) begin
-            s1out_valid_list       [idx_stage1] = stage1[BITWIDTH_NEL_STAGE1*idx_input];
-            s1out_dec_expath_list  [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1EXPATH)  +: _BITWIDTH_STRUCT_EX_PATH];
-            s1out_pc_list          [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1PC)      +: _BITWIDTH_FLOW_WINDOWS_PC];
-            s1out_dec_microop_list [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1MICROOP) +: EX_INST_MICROOP_BITWIDTH];
-            s1out_dec_rd_list      [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1RD)      +: _BITWIDTH_IS_INST_REGS];
-            s1out_dec_newreg_list  [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1NEWREG)  +: 1];
-            s1out_dec_rs_list      [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1RS)      +: (_BITWIDTH_IS_INST_REGS*IS_INST_OPERANDS)];
-            s1out_dec_imm_list     [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1IMM)     +: IS_INST_IMM];
-            s1out_dec_jump_list    [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1JUMP)    +: 1];
-            s1out_dec_branch_list  [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1JUMPREG) +: 1];
-            s1out_dec_jump_reg_list[idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_input)+STARTPOINT_1BRANCH)  +: 1];
+            s1out_valid_list       [idx_stage1] = stage1[BITWIDTH_NEL_STAGE1*idx_stage1];
+            s1out_dec_expath_list  [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1EXPATH)  +: _BITWIDTH_STRUCT_EX_PATH];
+            s1out_pc_list          [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1PC)      +: _BITWIDTH_FLOW_WINDOWS_PC];
+            s1out_dec_microop_list [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1MICROOP) +: EX_INST_MICROOP_BITWIDTH];
+            s1out_dec_rd_list      [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1RD)      +: _BITWIDTH_IS_INST_REGS];
+            s1out_dec_newreg_list  [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1NEWREG)  +: 1];
+            s1out_dec_rs_list      [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1RS)      +: (_BITWIDTH_IS_INST_REGS*IS_INST_OPERANDS)];
+            s1out_dec_imm_list     [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1IMM)     +: IS_INST_IMM];
+            s1out_dec_jump_list    [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1JUMP)    +: 1];
+            s1out_dec_jump_reg_list[idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1JUMPREG) +: 1];
+            s1out_dec_branch_list  [idx_stage1] = stage1[((BITWIDTH_NEL_STAGE1*idx_stage1)+STARTPOINT_1BRANCH)  +: 1];
         end
 
         for (idx_stage1 = 0; idx_stage1 < STRUCT_DECODE_NEW_INST; idx_stage1 = idx_stage1+1) begin
@@ -361,7 +359,7 @@ module new_entry_logic #(
             ref_reg = s1out_dec_rd_list[idx_stage2_0];
 
             reg_dest_map_suffix[idx_stage2_0] = 0;
-            for (idx_stage2_1 = 0; idx_stage2_1 < STRUCT_DECODE_NEW_INST; idx_stage2_1 = idx_stage2_1+1) begin
+            for (idx_stage2_1 = idx_stage2_0+1; idx_stage2_1 < STRUCT_DECODE_NEW_INST; idx_stage2_1 = idx_stage2_1+1) begin
                 comp_reg = s1out_dec_rd_list[idx_stage2_1];
                 if ( (s1out_valid_list[idx_stage2_0]) && (s1out_valid_list[idx_stage2_1]) && 
                      (s1out_dec_newreg_list[idx_stage2_0]) && (s1out_dec_newreg_list[idx_stage2_1]) && 
@@ -369,14 +367,13 @@ module new_entry_logic #(
 
                     reg_dest_map_suffix[idx_stage2_1]               = 0;
                     reg_dest_map_suffix[idx_stage2_1][idx_stage2_0] = 1'b1;
-
-                    real_newreg[idx_stage2_0] = 1'b0;
                 end
             end
 
             for (idx_stage2_1 = (idx_stage2_0+1)*IS_INST_OPERANDS; idx_stage2_1 < (STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS); idx_stage2_1 = idx_stage2_1+1) begin
-                comp_reg = s1out_dec_rs_list[idx_stage2_1][(IS_INST_OPERANDS*idx_stage2_1) +: IS_INST_OPERANDS];
-                if ( (s1out_valid_list[idx_stage2_0]) && (s1out_valid_list[idx_stage2_1]) && 
+                comp_reg = s1out_dec_rs_list[idx_stage2_1/IS_INST_OPERANDS]
+                                            [(_BITWIDTH_IS_INST_REGS*(idx_stage2_1%IS_INST_OPERANDS)) +: _BITWIDTH_IS_INST_REGS];
+                if ( (s1out_valid_list[idx_stage2_0]) && (s1out_valid_list[idx_stage2_1/IS_INST_OPERANDS]) && 
                      (s1out_dec_newreg_list[idx_stage2_0]) && 
                      (ref_reg != 0) && (comp_reg != 0) && (ref_reg == comp_reg) ) begin
 
@@ -401,54 +398,58 @@ module new_entry_logic #(
 
         // Stage 2 - Mapping Register Destination
         for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
-            if ( |reg_dest_map_suffix[idx_stage2_0] ) begin
-                s2in_prd_list[idx_stage2_0] = 0;
-                for (idx_stage2_1 = 0; idx_stage2_1 < STRUCT_DECODE_NEW_INST; idx_stage2_1 = idx_stage2_1+1) begin
-                    if (reg_dest_map_suffix[idx_stage2_0][idx_stage2_1])
-                        s2in_prd_list[idx_stage2_0] 
-                            = i_prm_phyreg_data[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_1) +: _BITWIDTH_STRUCT_PHYREGS];
-                end
-            end
-            else if (real_newreg[idx_stage2_0]) begin
-                s2in_prd_list[idx_stage2_0] = prd_mapping_all[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_0) +: _BITWIDTH_STRUCT_PHYREGS];
+            if (s2in_newreg_list[idx_stage2_0]) begin
+                s2in_prd_list[idx_stage2_0] = i_prm_phyreg_data[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_0) +: _BITWIDTH_STRUCT_PHYREGS];
             end
             else begin
                 s2in_prd_list[idx_stage2_0] = 0;
             end
         end
+        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+            s2in_newreg_all[idx_stage2_0] = s2in_newreg_list[idx_stage2_0];
+            s2in_prd_all[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_0) +: _BITWIDTH_STRUCT_PHYREGS]
+                = s2in_prd_list[idx_stage2_0];
+        end
+        
+        o_prm_phyreg_get = ( (&i_ist_new_inst_get) )
+                            ? (s2in_newreg_all & o_ist_new_inst_valid) : {STRUCT_DECODE_NEW_INST{1'b0}};
+        
 
         // Stage 2 - Mapping Registers Source 
         for (idx_stage2_0 = 0; idx_stage2_0 < (STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS); idx_stage2_0 = idx_stage2_0+1) begin
+            s2in_prs_list[idx_stage2_0/IS_INST_OPERANDS]
+                         [(_BITWIDTH_STRUCT_PHYREGS*(idx_stage2_0%IS_INST_OPERANDS)) +: _BITWIDTH_STRUCT_PHYREGS]
+                = prs_mapping_all[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_0) +: _BITWIDTH_STRUCT_PHYREGS];
             if ( |reg_src_map_suffix[idx_stage2_0] ) begin
-                s2in_prs_list[idx_stage2_0] = 0;
                 for (idx_stage2_1 = 0; idx_stage2_1 < STRUCT_DECODE_NEW_INST; idx_stage2_1 = idx_stage2_1+1) begin
                     if (reg_src_map_suffix[idx_stage2_0][idx_stage2_1])
-                        s2in_prs_list[idx_stage2_0] 
+                        s2in_prs_list[idx_stage2_0/IS_INST_OPERANDS]
+                                     [(_BITWIDTH_STRUCT_PHYREGS*(idx_stage2_0%IS_INST_OPERANDS)) +: _BITWIDTH_STRUCT_PHYREGS]
                             = i_prm_phyreg_data[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_1) +: _BITWIDTH_STRUCT_PHYREGS];
                 end
-            end
-            else begin
-                s2in_prs_list[idx_stage2_0] = prs_mapping_all[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_0) +: _BITWIDTH_STRUCT_PHYREGS];
             end
         end
 
         // Stage 2 - Input Register
-        for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
-
-            stage2_next[(BITWIDTH_NEL_STAGE2*idx_stage2_0) +: BITWIDTH_NEL_STAGE2] = {
-                s2in_valid_list   [idx_stage2_0],
-                s2in_expath_list  [idx_stage2_0],
-                s2in_pc_list      [idx_stage2_0],
-                s2in_microop_list [idx_stage2_0],
-                s2in_prd_list     [idx_stage2_0],
-                s2in_newreg_list  [idx_stage2_0],
-                s2in_prs_list     [idx_stage2_0],
-                s2in_imm_list     [idx_stage2_0],
-                s2in_jump_list    [idx_stage2_0],
-                s2in_jump_reg_list[idx_stage2_0],
-                s2in_branch_list  [idx_stage2_0]
-            };
-
+        if ( &i_ist_new_inst_get && &i_prm_phyreg_valid ) begin
+            for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+                stage2_next[(BITWIDTH_NEL_STAGE2*idx_stage2_0) +: BITWIDTH_NEL_STAGE2] = {
+                    s2in_branch_list  [idx_stage2_0],
+                    s2in_jump_reg_list[idx_stage2_0],
+                    s2in_jump_list    [idx_stage2_0],
+                    s2in_imm_list     [idx_stage2_0],
+                    s2in_prs_list     [idx_stage2_0],
+                    s2in_newreg_list  [idx_stage2_0],
+                    s2in_prd_list     [idx_stage2_0],
+                    s2in_microop_list [idx_stage2_0],
+                    s2in_pc_list      [idx_stage2_0],
+                    s2in_expath_list  [idx_stage2_0],
+                    s2in_valid_list   [idx_stage2_0]
+                };
+            end
+        end
+        else begin
+            stage2_next = stage2;
         end
 
         // Out - Stage 2 Out
@@ -466,6 +467,9 @@ module new_entry_logic #(
             s2out_branch_list   [idx_stage2_0] = stage2[((BITWIDTH_NEL_STAGE2*idx_stage2_0)+STARTPOINT_2BRANCH ) +: 1];
         end
         for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
+            s2out_valid_all [idx_stage2_0] = s2out_valid_list[idx_stage2_0];
+            s2out_newreg_all[idx_stage2_0] = s2out_newreg_list[idx_stage2_0];
+            s2out_prd_all[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_0) +: _BITWIDTH_STRUCT_PHYREGS] = s2out_prd_list[idx_stage2_0];
             s2out_prs_all[((_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS)*idx_stage2_0) +: (_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS)]
                 = s2out_prs_list[idx_stage2_0];
         end
@@ -474,7 +478,7 @@ module new_entry_logic #(
         for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
             last_ready[idx_stage2_0] = 0;
             for (idx_stage2_1 = 0; idx_stage2_1 < IS_INST_OPERANDS; idx_stage2_1 = idx_stage2_1+1) begin
-                ref_preg = s2out_prs_list[(_BITWIDTH_STRUCT_PHYREGS*((IS_INST_OPERANDS*idx_stage2_0)+idx_stage2_1)) +: _BITWIDTH_STRUCT_PHYREGS];
+                ref_preg = s2out_prs_list[idx_stage2_0][(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_1) +: _BITWIDTH_STRUCT_PHYREGS];
                 
                 if ( ~s2out_valid_list[idx_stage2_0] )
                     last_ready[idx_stage2_0][idx_stage2_1] = 1'b0;
@@ -485,7 +489,7 @@ module new_entry_logic #(
                 
                 for (idx_stage2_2 = 0; idx_stage2_2 < STRUCT_EX_OUT_RESULT_SUM; idx_stage2_2 = idx_stage2_2+1) begin
                     if ( ( i_wbc_done_phyreg_valid[idx_stage2_2] )
-                         && ( ref_preg == i_wbc_done_phyreg_valid[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_2) +: _BITWIDTH_STRUCT_PHYREGS] ) ) begin
+                         && ( ref_preg == i_wbc_done_phyreg_data[(_BITWIDTH_STRUCT_PHYREGS*idx_stage2_2) +: _BITWIDTH_STRUCT_PHYREGS] ) ) begin
 
                         last_ready[idx_stage2_0][idx_stage2_1] = 1'b1;
                     end
@@ -495,7 +499,7 @@ module new_entry_logic #(
 
         // Out - Output
         for (idx_stage2_0 = 0; idx_stage2_0 < STRUCT_DECODE_NEW_INST; idx_stage2_0 = idx_stage2_0+1) begin
-            o_ist_new_inst_valid[idx_stage2_0] = s2out_valid_list[idx_stage2_0];
+            o_ist_new_inst_valid[idx_stage2_0] = ( (&i_ist_new_inst_get) && s2out_valid_list[idx_stage2_0] );
             o_ist_new_inst_data [(_BITWIDTH_INTERNAL_INST_WIDTH*idx_stage2_0) +: _BITWIDTH_INTERNAL_INST_WIDTH]
                 = {
                     last_ready         [idx_stage2_0],
@@ -507,21 +511,21 @@ module new_entry_logic #(
                     s2out_pc_list      [idx_stage2_0]
                 };
         end
-        
+
     end
 
     regfile #(
         .DATA_WIDTH    (_BITWIDTH_STRUCT_PHYREGS),
         .ENTRIES       (IS_INST_REGS),
-        .READ_CHANNEL  (STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS),
+        .READ_CHANNEL  (STRUCT_DECODE_NEW_INST+(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)),
         .WRITE_CHANNEL (STRUCT_DECODE_NEW_INST),
         .INITIAL_VALUE (0)
     ) U_NEL_LOGREG_PHYREG_MAP (
         .clk           (clk),
         .reset_n       (reset_n),
         .i_flush       (1'b0),
-        .i_read_addr   (s1out_rs_all),
-        .o_read_data   (prs_mapping_all),
+        .i_read_addr   ({ s1out_rd_all   , s1out_rs_all    }),
+        .o_read_data   ({ prd_mapping_all, prs_mapping_all }),
         .i_write_addr  (s1out_rd_all),
         .i_write_en    (real_newreg),
         .i_write_data  (i_prm_phyreg_data)
@@ -539,7 +543,7 @@ module new_entry_logic #(
         .i_flush       (1'b0),
         .i_read_addr   (s2out_prs_all),
         .o_read_data   (ready_table_out),
-        .i_write_addr  ({ i_wbc_done_phyreg_data,           s1out_rd_all                   }),
+        .i_write_addr  ({ i_wbc_done_phyreg_data,           i_prm_phyreg_data              }),
         .i_write_en    ({ i_wbc_done_phyreg_valid,          real_newreg                    }),
         .i_write_data  ({ {STRUCT_EX_OUT_RESULT_SUM{1'b1}}, {STRUCT_DECODE_NEW_INST{1'b0}} })
     );

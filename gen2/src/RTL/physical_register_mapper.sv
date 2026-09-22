@@ -63,29 +63,112 @@ module physical_register_mapper #(
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
-    input  wire                                                               clk,
-    input  wire                                                               reset_n,
+    input  wire                                                                        clk,
+    input  wire                                                                        reset_n,
 
     // Wait Physical Registers Input (IST)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                  i_ist_wait_phyreg_valid, 
-    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_READY_PRM) )-1:0]        i_ist_wait_phyreg_data,
+    input  wire [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]                        i_ist_wait_phyreg_valid, 
+    input  wire [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS*(_BITWIDTH_READY_PRM) )-1:0] i_ist_wait_phyreg_data,
         
     // Broadcast Done phyreg Input (WBC)
-    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                i_wbc_done_phyreg_valid,
-    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_PHYREGS) )-1:0] i_wbc_done_phyreg_data,
+    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                         i_wbc_done_phyreg_valid,
+    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]          i_wbc_done_phyreg_data,
 
     // Unallocate Retired Registers Input (FCL)
-    input  wire [STRUCT_UNALLOCATE_PHYREG-1:0]                                i_fcl_unallocate_phyreg_valid,
-    input  wire [(STRUCT_UNALLOCATE_PHYREG *(_BITWIDTH_STRUCT_PHYREGS) )-1:0] i_fcl_unallocate_phyreg_data,
+    input  wire [STRUCT_UNALLOCATE_PHYREG-1:0]                                         i_fcl_unallocate_phyreg_valid,
+    input  wire [(STRUCT_UNALLOCATE_PHYREG *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]          i_fcl_unallocate_phyreg_data,
 
     // Allocate Physical Registers Output (NEL)
-    output wire [STRUCT_DECODE_NEW_INST-1:0]                                  o_nel_phyreg_valid,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                  i_nel_phyreg_get,
-    output wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]   o_nel_phyreg_data,
+    output wire [STRUCT_DECODE_NEW_INST-1:0]                                           o_nel_phyreg_valid,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                           i_nel_phyreg_get,
+    output wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]            o_nel_phyreg_data,
 
     // Ready Physical Registers Output (IST)
-    output wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                 o_ist_ready_phyreg_valid, 
-    output wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]       o_ist_ready_phyreg_data
+    output wire [STRUCT_PRM_ENTRY_UPDATE-1:0]                                          o_ist_ready_phyreg_valid, 
+    output wire [(STRUCT_PRM_ENTRY_UPDATE*(_BITWIDTH_READY_PRM) )-1:0]                 o_ist_ready_phyreg_data
 );
+
+    localparam int _BITWIDTH_STRUCT_PRM_ENTRY_BUFFER = $clog2(STRUCT_PRM_ENTRY_BUFFER);
+
+    logic [_BITWIDTH_READY_PRM-1:0] wait_map_input [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
+    logic [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0] wait_map_phyreg [];
+
+    allocator #(
+        .ENTRIES            (STRUCT_PHYREGS-1),
+        .START_VALUE        (1),
+        .ALLOCATE_CHANNEL   (STRUCT_DECODE_NEW_INST),
+        .UNALLOCATE_CHANNEL (STRUCT_UNALLOCATE_PHYREG),
+        .USE_BRAM           (1'b1)
+    ) U_PRM_PHYREG_ALLOCATOR (
+        .clk                (clk),
+        .reset_n            (reset_n),
+        .i_flush            (1'b0),
+        .i_unallocate       (i_fcl_unallocate_phyreg_valid),
+        .o_unallocate_ready (),
+        .i_unallocate_data  (i_fcl_unallocate_phyreg_data),
+        .i_allocate         (i_nel_phyreg_get),
+        .o_allocate_valid   (o_nel_phyreg_valid),
+        .o_allocate_data    (o_nel_phyreg_data)
+    );
+
+    regfile #(
+        .DATA_WIDTH    (_BITWIDTH_STRUCT_PRM_ENTRY_BUFFER),
+        .ENTRIES       (STRUCT_PHYREGS),
+        .READ_CHANNEL  (STRUCT_DECODE_NEW_INST),
+        .WRITE_CHANNEL (),
+        .INITIAL_VALUE (0)
+    ) U_PRM_MAPPING_COUNTER (
+        .clk           (clk),
+        .reset_n       (reset_n),
+        .i_flush       (1'b0),
+        .i_read_addr   (),
+        .o_read_data   (),
+        .i_write_addr  (),
+        .i_write_en    (),
+        .i_write_data  ()
+    );
+
+    genvar mapping_idx, out_idx;
+    generate
+        for (mapping_idx = 0; mapping_idx < STRUCT_PRM_ENTRY_BUFFER; mapping_idx = mapping_idx+1) begin
+            regfile #(
+                .DATA_WIDTH    (_BITWIDTH_STRUCT_INST_STATE_ENTRIES),
+                .ENTRIES       (STRUCT_PHYREGS),
+                .READ_CHANNEL  (STRUCT_DECODE_NEW_INST),
+                .WRITE_CHANNEL (),
+                .INITIAL_VALUE (0)
+            ) U_PRM_IST_MAP (
+                .clk           (clk),
+                .reset_n       (reset_n),
+                .i_flush       (1'b0),
+                .i_read_addr   (),
+                .o_read_data   (),
+                .i_write_addr  (),
+                .i_write_en    (),
+                .i_write_data  ()
+            );
+        end
+
+        for (out_idx = 0; out_idx < STRUCT_PRM_ENTRY_UPDATE; out_idx = out_idx+1) begin
+            fifo_multichan #(
+                .DATA_WIDTH     (_BITWIDTH_READY_PRM),
+                .READ_CHANNEL   (2),
+                .WRITE_CHANNEL  (STRUCT_PRM_ENTRY_BUFFER),
+                .MIN_FIFO_ENTRY (64)
+            ) U_PRM_OUTPUT_FIFO (
+                .clk            (),
+                .reset_n        (),
+                .i_flush        (),
+                .i_push         (),
+                .o_push_ready   (),
+                .i_push_data    (),
+                .i_pop          (),
+                .o_pop_valid    (),
+                .o_pop_data     ()
+            );
+        end
+
+    endgenerate
+
 
 endmodule

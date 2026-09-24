@@ -90,8 +90,27 @@ module physical_register_mapper #(
 
     localparam int _BITWIDTH_STRUCT_PRM_ENTRY_BUFFER = $clog2(STRUCT_PRM_ENTRY_BUFFER);
 
-    logic [_BITWIDTH_READY_PRM-1:0] wait_map_input [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
-    logic [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0] wait_map_phyreg [];
+    logic [_BITWIDTH_READY_PRM-1:0]                       wait_input_list     [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
+    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]                  wait_input_phyreg   [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
+    logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0]       wait_input_istentry [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
+    logic [STRUCT_PHYREGS-1:0]                            wait_map_list       [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
+
+    integer idx_input;
+
+    always_comb begin
+        for (idx_input = 0; idx_input < (STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS); idx_input = idx_input+1) begin
+            wait_input_list  [idx_input] = 
+                i_ist_wait_phyreg_data[(_BITWIDTH_READY_PRM*idx_input) +: _BITWIDTH_READY_PRM]
+            wait_input_phyreg  [idx_input] = wait_input_list[_BITWIDTH_STRUCT_PHYREGS-1:0];
+            wait_input_istentry[idx_input] = wait_input_list[_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:_BITWIDTH_STRUCT_PHYREGS];
+
+            wait_map_list[idx_input] = 0;
+            if (i_ist_wait_phyreg_valid[idx_input]) begin
+                wait_map_list[idx_input][wait_input_phyreg] = 1'b1;
+            end
+            else 
+        end
+    end
 
     allocator #(
         .ENTRIES            (STRUCT_PHYREGS-1),
@@ -162,7 +181,7 @@ module physical_register_mapper #(
                 .i_push         (),
                 .o_push_ready   (),
                 .i_push_data    (),
-                .i_pop          (),
+                .i_pop          (2'b01),
                 .o_pop_valid    (),
                 .o_pop_data     ()
             );

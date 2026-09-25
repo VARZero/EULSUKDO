@@ -94,8 +94,9 @@ module physical_register_mapper #(
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0]                  wait_input_phyreg   [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
     logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0]       wait_input_istentry [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
     logic [STRUCT_PHYREGS-1:0]                            wait_map_list       [0:(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1];
+    logic [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0] wait_map_phyreg     [0:STRUCT_PHYREGS-1];
 
-    integer idx_input;
+    integer idx_input, idx_map0, idx_map1;
 
     always_comb begin
         for (idx_input = 0; idx_input < (STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS); idx_input = idx_input+1) begin
@@ -108,7 +109,12 @@ module physical_register_mapper #(
             if (i_ist_wait_phyreg_valid[idx_input]) begin
                 wait_map_list[idx_input][wait_input_phyreg] = 1'b1;
             end
-            else 
+        end
+
+        for (idx_map0 = 0; idx_map0 < STRUCT_PHYREGS; idx_map0 = idx_map0+1) begin
+            for (idx_map1 = 0; idx_map1 < (STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS); idx_map1 = idx_map1+1) begin
+                wait_map_phyreg[idx_map0][idx_map1] = wait_map_list[idx_map1][idx_map0];
+            end
         end
     end
 

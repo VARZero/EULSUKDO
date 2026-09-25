@@ -390,3 +390,7 @@ input[type="checkbox"] {
   width: 14px;
   height: 14px;
 }
+
+.code-preview-wrapper { display: flex; flex-direction: column; flex: 0 0 440px; width: 440px; min-width: 0; overflow: hidden; }
+.code-preview-wrapper .code-panel { flex: 1; min-height: 0; width: 100%; }
+.config-error { padding: 10px; color: #ffad71; background: #352218; font-size: 12px; }

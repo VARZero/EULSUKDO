@@ -1,419 +1,337 @@
-`timescale 1ns / 1ps
-
+`timescale 1ns/1ps
 module flow_control_logic #(
     // Instruction Set Parameters
-    parameter int IS_INST_PC_BITWIDTH           = 32,
-    parameter int IS_INST_PC_STEP               = 4,
-    parameter int IS_INST_BITWIDTH               = 32,
-    parameter int IS_INST_REGS                   = 32,
-    parameter int IS_INST_OPERANDS               = 2,
-    parameter int IS_INST_IMM                    = 32,
+    parameter int IS_INST_PC_BITWIDTH                   = 32,
+    parameter int IS_INST_PC_STEP                       = 4,
+    parameter int IS_INST_BITWIDTH                      = 32,
+    parameter int IS_INST_REGS                          = 32,
+    parameter int IS_INST_OPERANDS                      = 2,
+    parameter int IS_INST_IMM                           = 32,
 
     // Execution Unit Parameters
-    parameter int EX_INST_MICROOP_BITWIDTH       = 5,
+    parameter int EX_INST_MICROOP_BITWIDTH              = 5,
 
     // EULSUKDO Structure Parameters
-    parameter int STRUCT_DECODE_NEW_INST        = 1,
-    parameter int STRUCT_INST_STATE_ENTRIES     = 128,
-    parameter int STRUCT_PHYREGS                 = 64,
-    parameter int STRUCT_EX_PATH                 = 3,
-    parameter int STRUCT_RS_OUT_ENTRY [STRUCT_EX_PATH] = '{1, 1, 1},
-    parameter int STRUCT_EX_CORES                = 3,
-    parameter int STRUCT_EX_OUT_RESULT [STRUCT_EX_CORES] = '{1, 1, 1},
-    parameter int STRUCT_EX_OUT_RESULT_SUM       = 3,
-    parameter int STRUCT_PRM_ENTRY_UPDATE        = 3,
-    parameter int STRUCT_PRM_ENTRY_BUFFER        = 4,
-    parameter int STRUCT_UNALLOCATE_PHYREG       = 4,
-    parameter int STRUCT_FLOW_WINDOWS            = 8,
-    parameter int STRUCT_FLOW_PC_MAX_RANGE       = 8,
+    parameter int STRUCT_DECODE_NEW_INST                = 2,
+    parameter int STRUCT_INST_STATE_ENTRIES             = 128,
+    parameter int STRUCT_PHYREGS                        = 64,
+    parameter int STRUCT_EX_PATH                        = 3,
+    parameter int STRUCT_RS_OUT_ENTRY[STRUCT_EX_PATH]   = {1, 3, 1},
+    parameter int STRUCT_EX_CORES                       = 5,
+    parameter int STRUCT_EX_OUT_RESULT[STRUCT_EX_CORES] = {1, 1, 1, 1, 1},
+    parameter int STRUCT_EX_OUT_RESULT_SUM              = 5,
+    parameter int STRUCT_EX_BRANCH                      = 1,
+    parameter int STRUCT_PRM_ENTRY_UPDATE               = 5,
+    parameter int STRUCT_PRM_ENTRY_BUFFER               = 4,
+    parameter int STRUCT_UNALLOCATE_PHYREG              = 4,
+    parameter int STRUCT_FLOW_WINDOWS                   = 8,
+    parameter int STRUCT_FLOW_PC_MAX_RANGE              = 16,
 
-    // Auto-generated Localparams in Parameter section for port declaration usage
-    localparam int _BITWIDTH_LOW_STRUCT_PHYREGS         = $clog2(STRUCT_PHYREGS),
-    localparam int _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS   = $clog2(STRUCT_FLOW_WINDOWS),
-    localparam int _BITWIDTH_LOW_STRUCT_EX_PATH         = $clog2(STRUCT_EX_PATH),
-    localparam int _BITWIDTH_LOW_STRUCT_INST_STATE_ENTRIES = $clog2(STRUCT_INST_STATE_ENTRIES),
-
-    localparam int _STRUCT_EX_OUT_RESULT_ALL            = STRUCT_EX_OUT_RESULT_SUM,
-
-    // Composite bitwidths
-    localparam int _BITWIDTH_CMB_FLOW_INDEXnPC          = _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS + IS_INST_PC_BITWIDTH,
-
-    // PRM unallocator width
-    localparam int PRM_UNALLOCATE_BITWIDTH              = _BITWIDTH_LOW_STRUCT_PHYREGS * STRUCT_UNALLOCATE_PHYREG,
-
-    // Combined Jump/Branch packet width from NEL: [new_pc][branch][jump_reg][jump]
-    localparam int NEL_JUMP_BRANCH_PACKET_WIDTH         = 3 + IS_INST_PC_BITWIDTH
+    // Synthesis Create Local Parameters
+    localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
+    localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
+    localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
+    localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
+    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
+    localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH,
+    localparam int _BITWIDTH_INTERNAL_INST_WIDTH        = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
+                                                         + EX_INST_MICROOP_BITWIDTH
+                                                         + IS_INST_IMM
+                                                         + _BITWIDTH_STRUCT_PHYREGS // rd
+                                                         + (_BITWIDTH_STRUCT_PHYREGS * IS_INST_OPERANDS) // rs1..n
+                                                         + IS_INST_OPERANDS, // Ready1..n
+    localparam int _BITWIDTH_EX_INST_WIDTH              = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
+                                                         + EX_INST_MICROOP_BITWIDTH
+                                                         + IS_INST_IMM
+                                                         + _BITWIDTH_STRUCT_PHYREGS // rd
+                                                         + (_BITWIDTH_STRUCT_PHYREGS * IS_INST_OPERANDS), // rs1..n
+    localparam int _BITWIDTH_EX_RESULT_WIDTH            = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_PHYREGS, // rd
+    localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
+    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Flag
+                                                         + 1 // Jump Register Flag
+                                                         + 1 // Branch Flag
+                                                         + IS_INST_PC_BITWIDTH, // New Program Counter
+    localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
 ) (
-    input  wire                                                 clk,
-    input  wire                                                 reset_n,
+    input  wire                                                                        clk,
+    input  wire                                                                        reset_n,
+        
+    // Done PC Input (WBC)
+    input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                         i_wbc_done_pc_valid,
+    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_STRUCT_EX_DONE_PC) )-1:0]       i_wbc_done_pc_data,
+    input  wire [STRUCT_EX_BRANCH-1:0]                                                i_wbc_branch_valid,
+    input  wire [(STRUCT_EX_BRANCH*(_BITWIDTH_STRUCT_JUMP_BRANCH_INFO))-1:0]          i_wbc_branch_data,
+        
+    // Jump/Branch Information Input (NEL)
+    input  wire                                                                        i_nel_jumpbranch_valid,
+    input  wire [_BITWIDTH_STRUCT_JUMP_BRANCH_INFO-1:0]                                i_nel_jumpbranch_data,
 
-    // Instruction Memory interface
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                    i_im_inst_valid,
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                    i_im_inst_get,
-    output reg                                                  o_im_re,
-    output wire [_BITWIDTH_CMB_FLOW_INDEXnPC-1:0]               o_im_pc,
+    // Retired Physical Registers Input (NEL)
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                           i_nel_retired_phyreg_valid,
+    input  wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG) )-1:0] i_nel_retired_phyreg_data,
 
-    // NEL Jump/Branch interface (i/o_nel_jump_branch_*)
-    input  wire                                                 i_nel_jump_branch_valid,
-    input  wire [NEL_JUMP_BRANCH_PACKET_WIDTH-1:0]              i_nel_jump_branch_data,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                           i_im_recv_inst_valid,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                           i_im_recv_inst_get,
+    input  wire [(STRUCT_DECODE_NEW_INST*_BITWIDTH_FLOW_WINDOWS_PC)-1:0]               i_im_recv_pc,
+    output logic [STRUCT_DECODE_NEW_INST-1:0]                                          o_im_recv_discard,
 
-    // NEL newpc interface
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                    i_nel_newpc_valid,
-    input  wire [(STRUCT_DECODE_NEW_INST * _BITWIDTH_CMB_FLOW_INDEXnPC)-1:0] i_nel_newpc,
+    // Request New Instruction Output (IM)
+    output logic [STRUCT_DECODE_NEW_INST-1:0]                                          o_im_req_pc_valid,
+    input  wire [STRUCT_DECODE_NEW_INST-1:0]                                           i_im_req_pc_get,
+    output logic [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_FLOW_WINDOWS_PC) )-1:0]          o_im_req_pc,
 
-    // NEL Unallocate interface (i/o_nel_unallo_reg_*)
-    input  wire [STRUCT_DECODE_NEW_INST-1:0]                    i_nel_unallo_reg_valid,
-    input  wire [(STRUCT_DECODE_NEW_INST * _BITWIDTH_LOW_STRUCT_PHYREGS)-1:0] i_nel_unallo_reg_data,
-
-    // PRM Unallocate interface (i/o_prm_unallocate_*)
-    output wire [STRUCT_UNALLOCATE_PHYREG-1:0]                   o_prm_unallocate_valid,
-    output wire [PRM_UNALLOCATE_BITWIDTH-1:0]                   o_prm_unallocate_phyreg,
-
-    // WBC complete command PC interface (i/o_wbc_pc_*)
-    input  wire [_STRUCT_EX_OUT_RESULT_ALL-1:0]                  i_wbc_pc_valid,
-    input  wire [(_STRUCT_EX_OUT_RESULT_ALL * _BITWIDTH_CMB_FLOW_INDEXnPC)-1:0] i_wbc_pc_data,
-
-    // WBC Branch resolve interface (i/o_wbc_branch_*)
-    input  wire                                                 i_wbc_branch_valid,
-    input  wire [(IS_INST_PC_BITWIDTH + 1)-1:0]                 i_wbc_branch_data,
-
-    // NEL stall/block indicator
-    input  wire                                                 i_nel_block
+    // Unallocate Retired Registers Output (PRM)
+    output logic [STRUCT_UNALLOCATE_PHYREG-1:0]                                        o_prm_unallocate_phyreg_valid,
+    output logic [(STRUCT_UNALLOCATE_PHYREG *(_BITWIDTH_STRUCT_PHYREGS) )-1:0]         o_prm_unallocate_phyreg_data
 );
+    localparam int RETIRE_DEPTH = STRUCT_PHYREGS+STRUCT_DECODE_NEW_INST;
 
-    // FCL Constants
-    localparam int FCL_RB_PC_GAP_MAX = (STRUCT_PHYREGS / 2) * IS_INST_PC_STEP;
+    logic [IS_INST_PC_BITWIDTH-1:0] next_pc, next_pc_next;
+    logic [_BITWIDTH_STRUCT_FLOW_WINDOWS-1:0] flow_id, flow_id_next, redirect_flow;
+    logic [STRUCT_FLOW_WINDOWS-1:0] flow_active, flow_active_next;
+    logic [STRUCT_FLOW_WINDOWS-1:0] flow_closed, flow_closed_next;
+    logic [STRUCT_FLOW_WINDOWS-1:0] flow_discard, flow_discard_next;
+    logic [31:0] flow_pending [0:STRUCT_FLOW_WINDOWS-1];
+    logic [31:0] flow_pending_next [0:STRUCT_FLOW_WINDOWS-1];
+    logic [31:0] flow_requested, flow_requested_next;
+    logic [31:0] flow_inflight [0:STRUCT_FLOW_WINDOWS-1];
+    logic [31:0] flow_inflight_next [0:STRUCT_FLOW_WINDOWS-1];
+    logic [31:0] flow_order [0:STRUCT_FLOW_WINDOWS-1];
+    logic [31:0] flow_order_next [0:STRUCT_FLOW_WINDOWS-1];
+    logic [31:0] next_order, next_order_next;
+    logic flow_wait, flow_wait_next;
+    logic redirect_pending, redirect_pending_next, redirect_found;
+    logic [IS_INST_PC_BITWIDTH-1:0] redirect_pc, redirect_pc_next;
 
-    // Unpack Jump/Branch inputs from NEL
-    wire                                 nel_jump_inst;
-    wire                                 nel_jreg_branch_inst;
-    wire                                 nel_branch_inst;
-    wire [IS_INST_PC_BITWIDTH-1:0]       nel_jump_branch_pc;
+    logic [RETIRE_DEPTH-1:0] retire_valid, retire_valid_next;
+    logic [_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG-1:0] retire_data [0:RETIRE_DEPTH-1];
+    logic [_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG-1:0] retire_data_next [0:RETIRE_DEPTH-1];
+    logic [STRUCT_FLOW_WINDOWS-1:0] retire_remain;
+    integer flow_idx, lane, index, out_lane, free_index, target_flow;
+    logic older_active;
 
-    assign nel_jump_inst        = i_nel_jump_branch_data[0] & i_nel_jump_branch_valid;
-    assign nel_jreg_branch_inst = i_nel_jump_branch_data[1] & i_nel_jump_branch_valid;
-    assign nel_branch_inst      = i_nel_jump_branch_data[2] & i_nel_jump_branch_valid;
-    assign nel_jump_branch_pc   = i_nel_jump_branch_data[3 +: IS_INST_PC_BITWIDTH];
-
-    // Unpack Branch inputs from WBC
-    wire                                 wbc2fcl_branch;
-    wire [IS_INST_PC_BITWIDTH-1:0]       wbc2fcl_branch_pc;
-
-    assign wbc2fcl_branch        = i_wbc_branch_data[0] & i_wbc_branch_valid;
-    assign wbc2fcl_branch_pc     = i_wbc_branch_data[1 +: IS_INST_PC_BITWIDTH];
-
-    // Split WBC completed PCs into FDU compatible format (extract only PC)
-    wire [(_STRUCT_EX_OUT_RESULT_ALL * IS_INST_PC_BITWIDTH)-1:0] wbc2fcl_pc_split;
-    genvar wb_idx;
-    generate
-        for (wb_idx = 0; wb_idx < _STRUCT_EX_OUT_RESULT_ALL; wb_idx = wb_idx + 1) begin : gen_wbc_pc_split
-            assign wbc2fcl_pc_split[wb_idx * IS_INST_PC_BITWIDTH +: IS_INST_PC_BITWIDTH] = 
-                i_wbc_pc_data[wb_idx * _BITWIDTH_CMB_FLOW_INDEXnPC + _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS +: IS_INST_PC_BITWIDTH];
-        end
-    endgenerate
-
-    // FCL State Machine signals
-    reg  [1:0]                                                  state,      state_next;
-    reg  [_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS-1:0]                pc_fcpath,  pc_fcpath_next;
-    reg  [IS_INST_PC_BITWIDTH-1:0]                              pc_im_req,  pc_im_req_next;
-    reg  [IS_INST_PC_BITWIDTH-1:0]                              pc_rb_last, pc_rb_last_next;
-
-    localparam reg [1:0] RESET               = 2'b00;
-    localparam reg [1:0] RUN                 = 2'b01;
-    localparam reg [1:0] BLOCK_ALLFCPATH_USE = 2'b10;
-    localparam reg [1:0] BLOCK_BRANCH        = 2'b11;
-
-    assign o_im_pc = {pc_fcpath, pc_im_req};
-
-    always @(posedge clk or negedge reset_n) begin
-        if (reset_n == 1'b0) begin
-            state          <= RESET;
-            pc_fcpath      <= 0;
-            pc_im_req      <= 0;
-            pc_rb_last     <= 0;
-        end else begin
-            state          <= state_next;
-            pc_fcpath      <= pc_fcpath_next;
-            pc_im_req      <= pc_im_req_next;
-            pc_rb_last     <= pc_rb_last_next;
-        end
-    end
-
-    reg                                                         update_pc_start;
-    reg  [IS_INST_PC_BITWIDTH-1:0]                              update_pc_start_addr;
-    reg                                                         update_pc_last;
-    reg  [IS_INST_PC_BITWIDTH-1:0]                              update_pc_last_addr;
-
-    wire [(_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS * STRUCT_FLOW_WINDOWS)-1:0] available_fcpath_out;
-    wire [_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS-1:0]                available_fcpath;
-    wire [STRUCT_FLOW_WINDOWS-1:0]                              fc_path_active;
-    wire [STRUCT_FLOW_WINDOWS-1:0]                              fc_path_available;
-
-    localparam int _BITWIDTH_DECODE_NEW_INST = (STRUCT_DECODE_NEW_INST > 1) ? $clog2(STRUCT_DECODE_NEW_INST) : 1;
-    reg [_BITWIDTH_DECODE_NEW_INST-1:0] last_get_idx;
-    always @(*) begin
-        last_get_idx = 0;
-        for (integer i = 0; i < STRUCT_DECODE_NEW_INST; i = i + 1) begin
-            if (i_im_inst_get[i]) begin
-                last_get_idx = i[_BITWIDTH_DECODE_NEW_INST-1:0];
-            end
-        end
-    end
-
-    assign available_fcpath = available_fcpath_out[_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS-1:0];
-
-    always @(*) begin
-        pc_fcpath_next  = pc_fcpath;
-        pc_im_req_next  = pc_im_req;
-        pc_rb_last_next = pc_rb_last;
-
-        update_pc_start      = 1'b0;
-        update_pc_start_addr = 0;
-        update_pc_last       = 1'b0;
-        update_pc_last_addr  = 0;
-
-        case (state)
-            RESET: begin 
-                state_next      = ((&i_im_inst_valid) && (&i_im_inst_get) && !i_nel_block) ? RUN : RESET; 
-                o_im_re         = (!i_nel_block) ? 1'b1 : 1'b0;
-                update_pc_start = ((&i_im_inst_valid) && (&i_im_inst_get) && !i_nel_block) ? 1'b1 : 1'b0; 
-                update_pc_start_addr = 0;
-                update_pc_last  = ((&i_im_inst_valid) && (&i_im_inst_get) && !i_nel_block) ? 1'b1 : 1'b0; 
-                update_pc_last_addr  = FCL_RB_PC_GAP_MAX;
-                pc_im_req_next  = ((&i_im_inst_valid) && (&i_im_inst_get) && !i_nel_block) ? (STRUCT_DECODE_NEW_INST * IS_INST_PC_STEP) : 0; 
-                pc_rb_last_next = FCL_RB_PC_GAP_MAX;
-            end
-            RUN: begin
-                state_next = RUN;
-                o_im_re = (&i_im_inst_get) & ~i_nel_block;
-                
-                if (!i_nel_block) begin
-                    if (|fc_path_available) begin
-                        if (nel_jump_inst) begin
-                            pc_fcpath_next      = available_fcpath;
-                            pc_im_req_next      = nel_jump_branch_pc;
-                            pc_rb_last_next     = nel_jump_branch_pc + FCL_RB_PC_GAP_MAX;
-
-                            update_pc_start      = 1'b1; 
-                            update_pc_start_addr = pc_im_req_next;
-                            update_pc_last       = 1'b1; 
-                            update_pc_last_addr  = pc_rb_last_next;
-                        end else begin
-                            pc_im_req_next      = ((&i_im_inst_valid) && (&i_im_inst_get)) ? pc_im_req + (STRUCT_DECODE_NEW_INST * IS_INST_PC_STEP) : pc_im_req;
-                            if (pc_im_req == pc_rb_last) begin
-                                pc_fcpath_next  = available_fcpath;
-                                pc_rb_last_next = pc_im_req_next + FCL_RB_PC_GAP_MAX;
-
-                                update_pc_start      = 1'b1; 
-                                update_pc_start_addr = pc_im_req_next;
-                                update_pc_last       = 1'b1; 
-                                update_pc_last_addr  = pc_rb_last_next;
-                            end
-                        end
-                    end else begin
-                        state_next = BLOCK_ALLFCPATH_USE;
-                        o_im_re    = 1'b0;
-                    end
-
-                    if (nel_jreg_branch_inst || nel_branch_inst) begin
-                        state_next = BLOCK_BRANCH;
-                        o_im_re    = 1'b0;
-
-                        update_pc_last      = 1'b1; 
-                        update_pc_last_addr = pc_im_req + (last_get_idx * IS_INST_PC_STEP);
-                    end
-                end else begin
-                    o_im_re = 1'b0;
-                end
-            end
-            BLOCK_ALLFCPATH_USE: begin
-                state_next = BLOCK_ALLFCPATH_USE;
-                o_im_re    = 1'b0;
-                if (|fc_path_available) begin
-                    state_next = RUN;
-                end
-            end
-            BLOCK_BRANCH: begin
-                state_next = BLOCK_BRANCH;
-                o_im_re    = 1'b0;
-                if (wbc2fcl_branch) begin
-                    state_next      = RUN;
-                    pc_fcpath_next  = available_fcpath;
-                    pc_im_req_next  = wbc2fcl_branch_pc;
-                    pc_rb_last_next = wbc2fcl_branch_pc + FCL_RB_PC_GAP_MAX;
-
-                    update_pc_start      = 1'b1; 
-                    update_pc_start_addr = wbc2fcl_branch_pc;
-                end
-            end
-            default: begin
-                state_next = RESET;
-                o_im_re    = 1'b0;
-            end
-        endcase
-    end
-
-    // Routing and demultiplexing incoming signals based on Flow Index (FCPATH)
-    reg  [_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS-1:0]                split_fcpath; 
-    reg  [STRUCT_DECODE_NEW_INST-1:0]                           nel_newpc_valid_FCPATH [0:STRUCT_FLOW_WINDOWS-1];
-    reg  [(IS_INST_PC_BITWIDTH * STRUCT_DECODE_NEW_INST)-1:0]   nel_newpc_split_FCPATH;
-    reg  [_STRUCT_EX_OUT_RESULT_ALL-1:0]                        wbc2fcl_pc_valid_FCPATH [0:STRUCT_FLOW_WINDOWS-1];
-    reg  [(_STRUCT_EX_OUT_RESULT_ALL * IS_INST_PC_BITWIDTH)-1:0] wbc2fcl_pc_split_FCPATH;
-
-    always @(*) begin
-        // Split new PC requests
-        for (integer nel_newpc_idx = 0; nel_newpc_idx < STRUCT_DECODE_NEW_INST; nel_newpc_idx = nel_newpc_idx + 1) begin
-            nel_newpc_split_FCPATH[(IS_INST_PC_BITWIDTH * nel_newpc_idx) +: IS_INST_PC_BITWIDTH] = 
-                i_nel_newpc[( _BITWIDTH_CMB_FLOW_INDEXnPC * nel_newpc_idx ) +: IS_INST_PC_BITWIDTH];
+    always_comb begin
+        next_pc_next = next_pc;
+        flow_id_next = flow_id;
+        flow_wait_next = flow_wait;
+        redirect_pending_next = redirect_pending;
+        redirect_pc_next = redirect_pc;
+        redirect_flow = flow_id;
+        redirect_found = 1'b0;
+        next_order_next = next_order;
+        flow_active_next = flow_active;
+        flow_closed_next = flow_closed;
+        flow_discard_next = flow_discard;
+        flow_requested_next = flow_requested;
+        for (flow_idx = 0; flow_idx < STRUCT_FLOW_WINDOWS; flow_idx++) begin
+            flow_inflight_next[flow_idx] = flow_inflight[flow_idx];
+            flow_pending_next[flow_idx] = flow_pending[flow_idx];
+            flow_order_next[flow_idx] = flow_order[flow_idx];
         end
 
-        // Split WBC complete command PCs
-        for (integer wbc2fcl_pc_idx = 0; wbc2fcl_pc_idx < _STRUCT_EX_OUT_RESULT_ALL; wbc2fcl_pc_idx = wbc2fcl_pc_idx + 1) begin
-            wbc2fcl_pc_split_FCPATH[(IS_INST_PC_BITWIDTH * wbc2fcl_pc_idx) +: IS_INST_PC_BITWIDTH] = 
-                i_wbc_pc_data[( _BITWIDTH_CMB_FLOW_INDEXnPC * wbc2fcl_pc_idx ) + _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS +: IS_INST_PC_BITWIDTH];
-        end
-
-        // Route valids to corresponding FDU windows
-        for (integer rcpath_split_idx = 0; rcpath_split_idx < STRUCT_FLOW_WINDOWS; rcpath_split_idx = rcpath_split_idx + 1) begin
-            nel_newpc_valid_FCPATH[rcpath_split_idx] = 0;
-            for (integer nel_newpc_idx = 0; nel_newpc_idx < STRUCT_DECODE_NEW_INST; nel_newpc_idx = nel_newpc_idx + 1) begin
-                split_fcpath = i_nel_newpc[( ( _BITWIDTH_CMB_FLOW_INDEXnPC * nel_newpc_idx ) + IS_INST_PC_BITWIDTH ) +: _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS];
-                if (split_fcpath == rcpath_split_idx) begin
-                    nel_newpc_valid_FCPATH[rcpath_split_idx][nel_newpc_idx] = i_nel_newpc_valid[nel_newpc_idx];
-                end
+        o_im_req_pc_valid = '0;
+        o_im_req_pc = '0;
+        for (lane = 0; lane < STRUCT_DECODE_NEW_INST; lane++) begin
+            o_im_req_pc[lane*_BITWIDTH_FLOW_WINDOWS_PC +: _BITWIDTH_FLOW_WINDOWS_PC] =
+                {flow_id, next_pc_next};
+            if (!flow_wait && !redirect_pending && !i_nel_jumpbranch_valid &&
+                !(|i_wbc_branch_valid) && flow_requested_next < STRUCT_FLOW_PC_MAX_RANGE) begin
+                if (lane == 0) o_im_req_pc_valid[lane] = 1'b1;
+                else if (o_im_req_pc_valid[lane-1] && i_im_req_pc_get[lane-1])
+                    o_im_req_pc_valid[lane] = 1'b1;
             end
-
-            wbc2fcl_pc_valid_FCPATH[rcpath_split_idx] = 0;
-            for (integer wbc2fcl_pc_idx = 0; wbc2fcl_pc_idx < _STRUCT_EX_OUT_RESULT_ALL; wbc2fcl_pc_idx = wbc2fcl_pc_idx + 1) begin
-                split_fcpath = i_wbc_pc_data[( ( _BITWIDTH_CMB_FLOW_INDEXnPC * wbc2fcl_pc_idx ) ) +: _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS];
-                if (split_fcpath == rcpath_split_idx) begin
-                    wbc2fcl_pc_valid_FCPATH[rcpath_split_idx][wbc2fcl_pc_idx] = (i_wbc_pc_valid[wbc2fcl_pc_idx]) ? 1'b1 : 1'b0;
+            if (i_im_req_pc_get[lane] && o_im_req_pc_valid[lane]) begin
+                next_pc_next = next_pc_next + IS_INST_PC_BITWIDTH'(IS_INST_PC_STEP);
+                flow_requested_next++;
+                flow_pending_next[flow_id]++;
+            end
+        end
+        for (lane = 0; lane < STRUCT_DECODE_NEW_INST; lane++) begin
+            target_flow = int'(i_im_recv_pc[lane*_BITWIDTH_FLOW_WINDOWS_PC + IS_INST_PC_BITWIDTH +: _BITWIDTH_STRUCT_FLOW_WINDOWS]);
+            if (i_im_recv_inst_valid[lane] && target_flow < STRUCT_FLOW_WINDOWS) begin
+                if (i_im_recv_inst_get[lane] && flow_pending_next[target_flow] != 0) begin
+                    flow_pending_next[target_flow]--;
+                    if (!flow_discard[target_flow]) flow_inflight_next[target_flow]++;
                 end
             end
         end
-    end
 
-    // Available Flow Paths tracker
-    wire [(STRUCT_FLOW_WINDOWS * _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS)-1:0] fc_path_pos_data;
-    genvar path_pos_idx;
-    generate
-        for (path_pos_idx = 0; path_pos_idx < STRUCT_FLOW_WINDOWS; path_pos_idx = path_pos_idx + 1) begin : gen_path_positions
-            assign fc_path_pos_data[(_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS * path_pos_idx) +: _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS] = path_pos_idx;
+        // Count IM-to-NEL acceptance, including an instruction held in NEL
+        // Stage 1, so its flow cannot be reused before rename completes.
+        for (lane = 0; lane < STRUCT_EX_OUT_RESULT_SUM; lane++) begin
+            target_flow = int'(i_wbc_done_pc_data[lane*_BITWIDTH_STRUCT_EX_DONE_PC + IS_INST_PC_BITWIDTH +: _BITWIDTH_STRUCT_FLOW_WINDOWS]);
+            if (i_wbc_done_pc_valid[lane] && target_flow < STRUCT_FLOW_WINDOWS && flow_inflight_next[target_flow] != 0)
+                flow_inflight_next[target_flow]--;
         end
-    endgenerate
 
-    position_splitter #(
-        .INPUT_ENTRIES(STRUCT_FLOW_WINDOWS),
-        .DATA_WIDTH   (_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS)
-    ) U_FC_PATH_VALID (
-        .valid_position_i(~fc_path_active),
-        .position_data_i (fc_path_pos_data),
-        .out_position_o  (fc_path_available),
-        .data_o          (available_fcpath_out)
-    );
-
-    // Freeing Flow Paths tracker
-    wire [STRUCT_FLOW_WINDOWS-1:0]                              fc_path_free;
-    wire [STRUCT_FLOW_WINDOWS-1:0]                              fc_path_free_ordering_valid;
-    wire [(_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS * STRUCT_FLOW_WINDOWS)-1:0] new_free_target_fcpath_out;
-    wire [_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS-1:0]                new_free_target_fcpath;
-    
-    assign new_free_target_fcpath = new_free_target_fcpath_out[_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS-1:0];
-
-    position_splitter #(
-        .INPUT_ENTRIES(STRUCT_FLOW_WINDOWS),
-        .DATA_WIDTH   (_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS)
-    ) U_FC_PATH_FREE (
-        .valid_position_i(fc_path_free),
-        .position_data_i (fc_path_pos_data),
-        .out_position_o  (fc_path_free_ordering_valid),
-        .data_o          (new_free_target_fcpath_out)
-    );
-
-    reg                                                         free_active, free_active_next;
-    reg  [_BITWIDTH_LOW_STRUCT_FLOW_WINDOWS-1:0]                free_target_fcpath, free_target_fcpath_next;
-    
-    always @(posedge clk or negedge reset_n) begin
-        if (reset_n == 1'b0) begin
-            free_active        <= 1'b0;
-            free_target_fcpath <= 0;
-        end else begin
-            free_active        <= free_active_next;
-            free_target_fcpath <= free_target_fcpath_next;
-        end
-    end
-
-    always @(*) begin
-        if (free_active == 1'b0) begin
-            if (|fc_path_free) begin
-                free_active_next        = 1'b1;
-                free_target_fcpath_next = new_free_target_fcpath;
-            end else begin
-                free_active_next        = 1'b0;
-                free_target_fcpath_next = free_target_fcpath;
+        if (i_nel_jumpbranch_valid) begin
+            flow_closed_next[flow_id] = 1'b1;
+            flow_discard_next[flow_id] = 1'b1;
+            if (i_nel_jumpbranch_data[IS_INST_PC_BITWIDTH] ||
+                i_nel_jumpbranch_data[IS_INST_PC_BITWIDTH+1]) begin
+                flow_wait_next = 1'b1;
             end
-        end else begin // free_active == 1'b1
-            free_target_fcpath_next = free_target_fcpath;
-            if (!fc_path_free[free_target_fcpath]) begin
-                free_active_next = 1'b0;
-            end else begin
-                free_active_next = 1'b1;
+            else begin
+                redirect_pending_next = 1'b1;
+                redirect_pc_next = i_nel_jumpbranch_data[0 +: IS_INST_PC_BITWIDTH];
             end
         end
+        if (|i_wbc_branch_valid) begin
+            redirect_pending_next = 1'b1;
+            redirect_pc_next = i_wbc_branch_data[0 +: IS_INST_PC_BITWIDTH];
+            flow_wait_next = 1'b0;
+        end
+        if (flow_requested_next >= STRUCT_FLOW_PC_MAX_RANGE && !i_nel_jumpbranch_valid &&
+            !flow_wait && !redirect_pending && !(|i_wbc_branch_valid)) begin
+            flow_closed_next[flow_id] = 1'b1;
+            redirect_pending_next = 1'b1;
+            redirect_pc_next = next_pc_next;
+        end
+
+        // The oldest active flow retires first. A replacement register is
+        // returned only after every instruction in that flow has completed.
+        retire_valid_next = '0;
+        retire_remain = '0;
+        o_prm_unallocate_phyreg_valid = '0;
+        o_prm_unallocate_phyreg_data = '0;
+        out_lane = 0;
+        free_index = 0;
+        older_active = 1'b0;
+        target_flow = 0;
+        for (index = 0; index < RETIRE_DEPTH; index++) begin
+            retire_data_next[index] = '0;
+        end
+        for (index = 0; index < RETIRE_DEPTH; index++) begin
+            if (retire_valid[index]) begin
+                target_flow = int'(retire_data[index][IS_INST_PC_BITWIDTH +: _BITWIDTH_STRUCT_FLOW_WINDOWS]);
+                older_active = 1'b0;
+                for (flow_idx = 0; flow_idx < STRUCT_FLOW_WINDOWS; flow_idx++) begin
+                    if (flow_active_next[flow_idx] && flow_order[flow_idx] < flow_order[target_flow])
+                        older_active = 1'b1;
+                end
+                if (flow_closed_next[target_flow] && flow_inflight_next[target_flow] == 0 &&
+                    flow_pending_next[target_flow] == 0 &&
+                    !older_active && out_lane < STRUCT_UNALLOCATE_PHYREG) begin
+                    o_prm_unallocate_phyreg_valid[out_lane] = 1'b1;
+                    o_prm_unallocate_phyreg_data[out_lane*_BITWIDTH_STRUCT_PHYREGS +: _BITWIDTH_STRUCT_PHYREGS] =
+                        retire_data[index][IS_INST_PC_BITWIDTH+_BITWIDTH_STRUCT_FLOW_WINDOWS +: _BITWIDTH_STRUCT_PHYREGS];
+                    out_lane++;
+                end
+                else begin
+                    retire_valid_next[free_index] = 1'b1;
+                    retire_data_next[free_index] = retire_data[index];
+                    retire_remain[target_flow] = 1'b1;
+                    free_index++;
+                end
+            end
+        end
+        for (lane = 0; lane < STRUCT_DECODE_NEW_INST; lane++) begin
+            if (i_nel_retired_phyreg_valid[lane] && free_index < RETIRE_DEPTH) begin
+                retire_valid_next[free_index] = 1'b1;
+                retire_data_next[free_index] =
+                    i_nel_retired_phyreg_data[lane*_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG +: _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG];
+                target_flow = int'(i_nel_retired_phyreg_data[lane*_BITWIDTH_STRUCT_RETIRED_PHYREG_MSG + IS_INST_PC_BITWIDTH +: _BITWIDTH_STRUCT_FLOW_WINDOWS]);
+                if (target_flow < STRUCT_FLOW_WINDOWS) retire_remain[target_flow] = 1'b1;
+                free_index++;
+            end
+        end
+
+        for (flow_idx = 0; flow_idx < STRUCT_FLOW_WINDOWS; flow_idx++) begin
+            if (flow_closed_next[flow_idx] && flow_inflight_next[flow_idx] == 0 &&
+                flow_pending_next[flow_idx] == 0 &&
+                !retire_remain[flow_idx]) begin
+                flow_active_next[flow_idx] = 1'b0;
+                flow_closed_next[flow_idx] = 1'b0;
+                flow_discard_next[flow_idx] = 1'b0;
+            end
+        end
+
+        // Do not reuse a window until its instructions and retired-register
+        // records have drained. A redirect waits when every window is active.
+        for (flow_idx = 0; flow_idx < STRUCT_FLOW_WINDOWS; flow_idx++) begin
+            if (!redirect_found && !flow_active_next[flow_idx] && flow_idx != int'(flow_id)) begin
+                redirect_flow = _BITWIDTH_STRUCT_FLOW_WINDOWS'(flow_idx);
+                redirect_found = 1'b1;
+            end
+        end
+        if (redirect_pending_next && redirect_found) begin
+            flow_id_next = redirect_flow;
+            next_pc_next = redirect_pc_next;
+            redirect_pending_next = 1'b0;
+            flow_active_next[redirect_flow] = 1'b1;
+            flow_closed_next[redirect_flow] = 1'b0;
+            flow_order_next[redirect_flow] = next_order;
+            next_order_next = next_order+1'b1;
+            flow_inflight_next[redirect_flow] = 0;
+            flow_pending_next[redirect_flow] = 0;
+            flow_discard_next[redirect_flow] = 1'b0;
+            flow_requested_next = 0;
+        end
     end
 
-    // Instantiate FDUs (Flow Detect Units)
-    wire [STRUCT_UNALLOCATE_PHYREG-1:0]                          unallocate_valid [0:STRUCT_FLOW_WINDOWS-1];
-    wire [(STRUCT_UNALLOCATE_PHYREG * _BITWIDTH_LOW_STRUCT_PHYREGS)-1:0] unallocate_phyreg [0:STRUCT_FLOW_WINDOWS-1];
+    for (genvar dlane = 0; dlane < STRUCT_DECODE_NEW_INST; dlane++) begin : GEN_DISCARD
+        wire [_BITWIDTH_STRUCT_FLOW_WINDOWS-1:0] response_flow =
+            i_im_recv_pc[dlane*_BITWIDTH_FLOW_WINDOWS_PC + IS_INST_PC_BITWIDTH +: _BITWIDTH_STRUCT_FLOW_WINDOWS];
+        assign o_im_recv_discard[dlane] = i_im_recv_inst_valid[dlane] && flow_discard[response_flow];
+    end
 
-    genvar fdu_idx;
-    generate
-        for (fdu_idx = 0; fdu_idx < STRUCT_FLOW_WINDOWS; fdu_idx = fdu_idx + 1) begin : gen_fdu_instances
-            flow_detect_unit #(
-                .IS_INST_PC_BITWIDTH         (IS_INST_PC_BITWIDTH),
-                .IS_INST_PC_STEP             (IS_INST_PC_STEP),
-                .IS_INST_BITWIDTH             (IS_INST_BITWIDTH),
-                .IS_INST_REGS                 (IS_INST_REGS),
-                .IS_INST_OPERANDS             (IS_INST_OPERANDS),
-                .IS_INST_IMM                  (IS_INST_IMM),
-                .EX_INST_MICROOP_BITWIDTH     (EX_INST_MICROOP_BITWIDTH),
-                .STRUCT_DECODE_NEW_INST      (STRUCT_DECODE_NEW_INST),
-                .STRUCT_INST_STATE_ENTRIES   (STRUCT_INST_STATE_ENTRIES),
-                .STRUCT_PHYREGS              (STRUCT_PHYREGS),
-                .STRUCT_EX_PATH              (STRUCT_EX_PATH),
-                .STRUCT_RS_OUT_ENTRY         (STRUCT_RS_OUT_ENTRY),
-                .STRUCT_EX_CORES             (STRUCT_EX_CORES),
-                .STRUCT_EX_OUT_RESULT        (STRUCT_EX_OUT_RESULT),
-                .STRUCT_EX_OUT_RESULT_SUM    (STRUCT_EX_OUT_RESULT_SUM),
-                .STRUCT_PRM_ENTRY_UPDATE     (STRUCT_PRM_ENTRY_UPDATE),
-                .STRUCT_PRM_ENTRY_BUFFER     (STRUCT_PRM_ENTRY_BUFFER),
-                .STRUCT_UNALLOCATE_PHYREG    (STRUCT_UNALLOCATE_PHYREG),
-                .STRUCT_FLOW_WINDOWS         (STRUCT_FLOW_WINDOWS),
-                .STRUCT_FLOW_PC_MAX_RANGE    (STRUCT_FLOW_PC_MAX_RANGE)
-            ) U_FLOW_DETECT_UNIT (
-                .clk                    (clk),
-                .reset_n                (reset_n),
-                .o_entry_active         (fc_path_active[fdu_idx]),
-                .o_entry_free           (fc_path_free[fdu_idx]),
-                .i_set_start_pc_valid   ((pc_fcpath_next == fdu_idx) ? update_pc_start      : 1'b0),
-                .i_set_start_pc         ((pc_fcpath_next == fdu_idx) ? update_pc_start_addr :    0),
-                .i_set_last_pc_valid    ((pc_fcpath_next == fdu_idx) ? update_pc_last       : 1'b0),
-                .i_set_last_pc          ((pc_fcpath_next == fdu_idx) ? update_pc_last_addr  :    0),
-                .i_nel_newpc_valid      (nel_newpc_valid_FCPATH[fdu_idx]),
-                .i_nel_newpc            (nel_newpc_split_FCPATH),
-                .i_nel_lastreg_valid    (i_nel_unallo_reg_valid),
-                .i_nel_lastreg          (i_nel_unallo_reg_data),
-                .i_wbc2fcl_done         (wbc2fcl_pc_valid_FCPATH[fdu_idx]),
-                .i_wbc2fcl_pc           (wbc2fcl_pc_split_FCPATH),
-                .i_unallocate_use       ((free_active && (free_target_fcpath == fdu_idx)) ? 1'b1 : 1'b0),
-                .o_prm_unallocate_valid (unallocate_valid[fdu_idx]),
-                .o_prm_unallocate_phyreg(unallocate_phyreg[fdu_idx])
-            );
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            next_pc <= '0;
+            flow_id <= '0;
+            flow_wait <= 1'b0;
+            redirect_pending <= 1'b0;
+            redirect_pc <= '0;
+            next_order <= 1;
+            flow_requested <= 0;
+            retire_valid <= '0;
         end
-    endgenerate
+        else begin
+            next_pc <= next_pc_next;
+            flow_id <= flow_id_next;
+            flow_wait <= flow_wait_next;
+            redirect_pending <= redirect_pending_next;
+            redirect_pc <= redirect_pc_next;
+            next_order <= next_order_next;
+            flow_requested <= flow_requested_next;
+            retire_valid <= retire_valid_next;
+        end
+    end
 
-    // Connect final unallocate outputs to PRM
-    assign o_prm_unallocate_valid  = unallocate_valid[free_target_fcpath][STRUCT_UNALLOCATE_PHYREG-1:0];
-    assign o_prm_unallocate_phyreg = unallocate_phyreg[free_target_fcpath][(STRUCT_UNALLOCATE_PHYREG * _BITWIDTH_LOW_STRUCT_PHYREGS)-1:0];
+    for (genvar flow = 0; flow < STRUCT_FLOW_WINDOWS; flow++) begin : GEN_FLOW_DETECT_UNIT
+        flow_detect_unit #(.INITIAL_ACTIVE(flow == 0)) U_FLOW_DETECT_UNIT (
+            .clk(clk), .reset_n(reset_n),
+            .i_active_next(flow_active_next[flow]),
+            .i_closed_next(flow_closed_next[flow]),
+            .i_discard_next(flow_discard_next[flow]),
+            .i_pending_next(flow_pending_next[flow]),
+            .i_inflight_next(flow_inflight_next[flow]),
+            .i_order_next(flow_order_next[flow]),
+            .o_active(flow_active[flow]),
+            .o_closed(flow_closed[flow]),
+            .o_discard(flow_discard[flow]),
+            .o_pending(flow_pending[flow]),
+            .o_inflight(flow_inflight[flow]),
+            .o_order(flow_order[flow])
+        );
+    end
+
+    for (genvar ridx = 0; ridx < RETIRE_DEPTH; ridx++) begin : GEN_RETIRE_DATA
+        always_ff @(posedge clk or negedge reset_n) begin
+            if (!reset_n) retire_data[ridx] <= '0;
+            else retire_data[ridx] <= retire_data_next[ridx];
+        end
+    end
 
 endmodule

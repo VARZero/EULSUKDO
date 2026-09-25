@@ -1,166 +1,164 @@
-`timescale 1ns / 1ps
-
+`timescale 1ns/1ps
 module ready_station #(
     // Instruction Set Parameters
-    parameter int IS_INST_PC_BITWIDTH           = 32,
-    parameter int IS_INST_PC_STEP               = 4,
-    parameter int IS_INST_BITWIDTH               = 32,
-    parameter int IS_INST_REGS                   = 32,
-    parameter int IS_INST_OPERANDS               = 2,
-    parameter int IS_INST_IMM                    = 32,
+    parameter int IS_INST_PC_BITWIDTH                   = 32,
+    parameter int IS_INST_PC_STEP                       = 4,
+    parameter int IS_INST_BITWIDTH                      = 32,
+    parameter int IS_INST_REGS                          = 32,
+    parameter int IS_INST_OPERANDS                      = 2,
+    parameter int IS_INST_IMM                           = 32,
 
     // Execution Unit Parameters
-    parameter int EX_INST_MICROOP_BITWIDTH       = 5,
+    parameter int EX_INST_MICROOP_BITWIDTH              = 5,
 
     // EULSUKDO Structure Parameters
-    parameter int STRUCT_DECODE_NEW_INST        = 1,
-    parameter int STRUCT_INST_STATE_ENTRIES     = 128,
-    parameter int STRUCT_PHYREGS                 = 64,
-    parameter int STRUCT_EX_PATH                 = 3,
-    parameter int STRUCT_RS_OUT_ENTRY [STRUCT_EX_PATH] = '{1, 1, 1},
-    parameter int STRUCT_RS_OUT_ENTRY_SUM        = 3,
-    parameter int STRUCT_EX_CORES                = 3,
-    parameter int STRUCT_EX_OUT_RESULT [STRUCT_EX_CORES] = '{1, 1, 1},
-    parameter int STRUCT_PRM_ENTRY_UPDATE        = 3,
-    parameter int STRUCT_PRM_ENTRY_BUFFER        = 4,
-    parameter int STRUCT_UNALLOCATE_PHYREG       = 4,
-    parameter int STRUCT_FLOW_WINDOWS            = 8,
-    parameter int STRUCT_FLOW_PC_MAX_RANGE       = 8,
+    parameter int STRUCT_DECODE_NEW_INST                = 2,
+    parameter int STRUCT_INST_STATE_ENTRIES             = 128,
+    parameter int STRUCT_PHYREGS                        = 64,
+    parameter int STRUCT_EX_PATH                        = 3,
+    parameter int STRUCT_RS_OUT_ENTRY[STRUCT_EX_PATH]   = {1, 3, 1},
+    parameter int STRUCT_EX_CORES                       = 5,
+    parameter int STRUCT_EX_OUT_RESULT[STRUCT_EX_CORES] = {1, 1, 1, 1, 1},
+    parameter int STRUCT_EX_OUT_RESULT_SUM              = 5,
+    parameter int STRUCT_EX_BRANCH                      = 1,
+    parameter int STRUCT_PRM_ENTRY_UPDATE               = 5,
+    parameter int STRUCT_PRM_ENTRY_BUFFER               = 4,
+    parameter int STRUCT_UNALLOCATE_PHYREG              = 4,
+    parameter int STRUCT_FLOW_WINDOWS                   = 8,
+    parameter int STRUCT_FLOW_PC_MAX_RANGE              = 16,
 
-    // Auto-generated Localparams in Parameter section for port declaration usage
-    localparam int _BITWIDTH_LOW_STRUCT_PHYREGS         = $clog2(STRUCT_PHYREGS),
-    localparam int _BITWIDTH_LOW_STRUCT_EX_PATH         = $clog2(STRUCT_EX_PATH),
-    localparam int _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS   = $clog2(STRUCT_FLOW_WINDOWS),
-    localparam int _STRUCT_RS_OUT_ENTRY_ALL            = STRUCT_RS_OUT_ENTRY_SUM,
-
-    // RS Push Width
-    localparam int RS_PUSH_WIDTH                        = STRUCT_DECODE_NEW_INST + STRUCT_PRM_ENTRY_UPDATE,
-
-    // Ready Station Entry Bitwidths (with and without EX Path)
-    localparam int RS_ENTRY_BITWIDTH                    = _BITWIDTH_LOW_STRUCT_PHYREGS * IS_INST_OPERANDS + 
-                                                          _BITWIDTH_LOW_STRUCT_PHYREGS + 
-                                                          IS_INST_IMM + 
-                                                          EX_INST_MICROOP_BITWIDTH + 
-                                                          _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS + 
-                                                          IS_INST_PC_BITWIDTH,
-                                                          
-    localparam int IST_READYINST_ENTRY_BITWIDTH         = RS_ENTRY_BITWIDTH + _BITWIDTH_LOW_STRUCT_EX_PATH
+    // Synthesis Create Local Parameters
+    localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
+    localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
+    localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
+    localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
+    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
+    localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH,
+    localparam int _BITWIDTH_INTERNAL_INST_WIDTH        = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
+                                                         + EX_INST_MICROOP_BITWIDTH
+                                                         + IS_INST_IMM
+                                                         + _BITWIDTH_STRUCT_PHYREGS // rd
+                                                         + (_BITWIDTH_STRUCT_PHYREGS * IS_INST_OPERANDS) // rs1..n
+                                                         + IS_INST_OPERANDS, // Ready1..n
+    localparam int _BITWIDTH_EX_INST_WIDTH              = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_EX_PATH
+                                                         + EX_INST_MICROOP_BITWIDTH
+                                                         + IS_INST_IMM
+                                                         + _BITWIDTH_STRUCT_PHYREGS // rd
+                                                         + (_BITWIDTH_STRUCT_PHYREGS * IS_INST_OPERANDS), // rs1..n
+    localparam int _BITWIDTH_EX_RESULT_WIDTH            = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_PHYREGS, // rd
+    localparam int _BITWIDTH_STRUCT_RETIRED_PHYREG_MSG  = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
+                                                         + _BITWIDTH_STRUCT_PHYREGS, // Retired Register
+    localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
+                                                         + 1 // Branch Flag
+                                                         + IS_INST_PC_BITWIDTH, // New Program Counter
+    localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                                         + IS_INST_PC_BITWIDTH
 ) (
-    input  wire                                                 clk,
-    input  wire                                                 reset_n,
+    input  wire                                                                                      clk,
+    input  wire                                                                                      reset_n,
 
-    // Ready instruction receive from IST (i/o_ist_readyinst_*)
-    input  wire [RS_PUSH_WIDTH-1:0]                             i_ist_readyinst_valid,
-    input  wire [(RS_PUSH_WIDTH * IST_READYINST_ENTRY_BITWIDTH)-1:0] i_ist_readyinst_data,
-    output wire                                                 o_ist_readyinst_get,
-
-    // Execution Units command issue (i/o_ex_exeinst_*)
-    input  wire [_STRUCT_RS_OUT_ENTRY_ALL-1:0]                  i_ex_exeinst_get,
-    output wire [_STRUCT_RS_OUT_ENTRY_ALL-1:0]                  o_ex_exeinst_valid,
-    output wire [(_STRUCT_RS_OUT_ENTRY_ALL * RS_ENTRY_BITWIDTH)-1:0] o_ex_exeinst_data
+    // Executable (All phyreg in instruction are ready) Internal Instruction Input (IST)
+    input  wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               i_ist_ready_inst_valid,
+    output reg  [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               o_ist_ready_inst_get,
+    input  wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] i_ist_ready_inst_data,
+    
+    // Wait EX Instruction Output (EX)
+    output reg  [STRUCT_EX_CORES-1:0]                                                                o_ex_wait_inst_valid,
+    input  wire [STRUCT_EX_CORES-1:0]                                                                i_ex_wait_inst_get,
+    output wire [(STRUCT_EX_CORES *(_BITWIDTH_EX_INST_WIDTH) )-1:0]                                  o_ex_wait_inst_data
 );
+    localparam INPUT_CHANNEL           = STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE;
+    localparam STARTPOINT_INST_EX_PATH = _BITWIDTH_STRUCT_FLOW_WINDOWS
+                                         + IS_INST_PC_BITWIDTH;
 
-    // Cumulative sum function to calculate offsets of STRUCT_RS_OUT_ENTRY
-    function automatic int get_rs_out_offset(input int path_idx);
-        int offset = 0;
-        for (int i = 0; i < path_idx; i++) begin
-            offset += STRUCT_RS_OUT_ENTRY[i];
+    logic [INPUT_CHANNEL-1:0]                           ex_valid        [0:STRUCT_EX_PATH-1];
+    logic [_BITWIDTH_STRUCT_EX_PATH-1:0]                compare_ex_path [0:INPUT_CHANNEL-1];
+    logic [INPUT_CHANNEL-1:0]                           gather_ex_path  [0:STRUCT_EX_PATH-1];
+    logic [INPUT_CHANNEL-1:0]                           ex_fifos_ready  [0:INPUT_CHANNEL-1];
+    logic [STRUCT_EX_PATH-1:0]                          ex_fifo_ready;
+    logic [(INPUT_CHANNEL*_BITWIDTH_EX_INST_WIDTH)-1:0] gather_inst     [0:STRUCT_EX_PATH-1];
+    integer                                             ex_split, ex_fifo_ready_idx, input_position;
+
+    always_comb begin
+        for (ex_split = 0; ex_split < STRUCT_EX_PATH; ex_split = ex_split+1)
+            ex_valid[ex_split] = 0;
+
+        for (input_position = 0; input_position < INPUT_CHANNEL; input_position = input_position+1) begin
+            compare_ex_path[input_position] = 
+                i_ist_ready_inst_data[STARTPOINT_INST_EX_PATH+(_BITWIDTH_EX_INST_WIDTH*input_position) +: _BITWIDTH_STRUCT_EX_PATH];
         end
-        return offset;
-    endfunction
 
-    // Startpoint of EX Path within the incoming IST packet
-    localparam int RS_STARTPOINT_EX_PATH = IS_INST_PC_BITWIDTH + _BITWIDTH_LOW_STRUCT_FLOW_WINDOWS;
-    localparam int UPPER_PART_START      = RS_STARTPOINT_EX_PATH + _BITWIDTH_LOW_STRUCT_EX_PATH;
-    localparam int UPPER_PART_WIDTH      = IST_READYINST_ENTRY_BITWIDTH - UPPER_PART_START;
-
-    // Split and pack input data to remove EX_PATH field
-    wire [RS_PUSH_WIDTH-1:0]                    entry_valid;
-    wire [(RS_PUSH_WIDTH * RS_ENTRY_BITWIDTH)-1:0] entry_data;
-
-    assign entry_valid = i_ist_readyinst_valid;
-
-    genvar k;
-    generate
-        for (k = 0; k < RS_PUSH_WIDTH; k = k + 1) begin : gen_strip_ex_path
-            assign entry_data[k * RS_ENTRY_BITWIDTH +: RS_ENTRY_BITWIDTH] = {
-                i_ist_readyinst_data[k * IST_READYINST_ENTRY_BITWIDTH + UPPER_PART_START +: UPPER_PART_WIDTH],
-                i_ist_readyinst_data[k * IST_READYINST_ENTRY_BITWIDTH +: RS_STARTPOINT_EX_PATH]
-            };
-        end
-    endgenerate
-
-    // EX Path validation and routing logic
-    reg  [RS_PUSH_WIDTH-1:0] ex_fifo_target_same_ex [0:STRUCT_EX_PATH-1];
-
-    always @(*) begin
-        for (integer target_ex = 0; target_ex < STRUCT_EX_PATH; target_ex = target_ex + 1) begin
-            for (integer target_entry = 0; target_entry < RS_PUSH_WIDTH; target_entry = target_entry + 1) begin
-                if (i_ist_readyinst_valid[target_entry] && 
-                    (i_ist_readyinst_data[(IST_READYINST_ENTRY_BITWIDTH * target_entry) + RS_STARTPOINT_EX_PATH +: _BITWIDTH_LOW_STRUCT_EX_PATH] == target_ex)) begin
-                    ex_fifo_target_same_ex[target_ex][target_entry] = i_ist_readyinst_valid[target_entry];
-                end else begin
-                    ex_fifo_target_same_ex[target_ex][target_entry] = 1'b0;
-                end
+        for (input_position = 0; input_position < INPUT_CHANNEL; input_position = input_position+1) begin
+            for (ex_split = 0; ex_split < STRUCT_EX_PATH; ex_split = ex_split+1) begin
+                if (int'(compare_ex_path[input_position]) == ex_split) ex_valid[ex_split][input_position] = i_ist_ready_inst_valid[input_position];
             end
         end
     end
 
-    // Connection arrays for EX Path FIFOs
-    wire [STRUCT_EX_PATH-1:0]                   ex_fifo_available;
-    wire [(RS_PUSH_WIDTH * RS_ENTRY_BITWIDTH)-1:0] ex_fifo_routed_data [0:STRUCT_EX_PATH-1];
-    wire [RS_PUSH_WIDTH-1:0]                    ex_fifo_target_valid [0:STRUCT_EX_PATH-1];
+    genvar  ex_split_gen;
 
-    // FIFO Depth Calculation: based on STRUCT_INST_STATE_ENTRIES and RS_PUSH_WIDTH
-    localparam int FIFO_DEPTH_CALC = (STRUCT_INST_STATE_ENTRIES / RS_PUSH_WIDTH) > 0 ? 
-                                     (STRUCT_INST_STATE_ENTRIES / RS_PUSH_WIDTH) : 1;
+    function automatic int ex_offset(integer ex_path_idx);
+        int posit = 0;
+        for (integer path = 0; path < ex_path_idx; path = path + 1) begin
+            posit = posit + STRUCT_RS_OUT_ENTRY[path];
+        end
+        return posit;
+    endfunction
 
-    // Instantiate splitters and variable I/O FIFOs for each path
-    genvar p;
     generate
-        for (p = 0; p < STRUCT_EX_PATH; p = p + 1) begin : gen_rs_paths
-            localparam int out_offset  = get_rs_out_offset(p);
-            localparam int num_outputs = STRUCT_RS_OUT_ENTRY[p];
-
-            // 1. gathers valid elements to LSB-aligned order
-            position_splitter #(
-                .INPUT_ENTRIES(RS_PUSH_WIDTH),
-                .DATA_WIDTH   (RS_ENTRY_BITWIDTH)
-            ) U_POSITION_SELECTOR (
-                .valid_position_i(ex_fifo_target_same_ex[p]),
-                .position_data_i (entry_data),
-                .out_position_o  (ex_fifo_target_valid[p]),
-                .data_o          (ex_fifo_routed_data[p])
-            );
-
-            // Connect controls and signals from the flat issue interface
-            wire [num_outputs-1:0] pop_get_p   = i_ex_exeinst_get[out_offset +: num_outputs];
-            wire [num_outputs-1:0] pop_valid_p;
-            wire [(num_outputs * RS_ENTRY_BITWIDTH)-1:0] pop_data_p;
-
-            assign o_ex_exeinst_valid[out_offset +: num_outputs] = pop_valid_p;
-            assign o_ex_exeinst_data[out_offset * RS_ENTRY_BITWIDTH +: (num_outputs * RS_ENTRY_BITWIDTH)] = pop_data_p;
-
-            // 2. FIFO instance for buffering commands
-            fifo_ordering_position #(
-                .PUSH_DATA  (RS_PUSH_WIDTH),
-                .POP_DATA   (num_outputs),
-                .ENTRY_WIDTH(RS_ENTRY_BITWIDTH),
-                .FIFO_DEPTH (FIFO_DEPTH_CALC)
-            ) U_RS_EX_FIFO (
-                .clk             (clk),
-                .reset_n         (reset_n),
-                .push_valid_i    (ex_fifo_target_valid[p]),
-                .push_data_i     (ex_fifo_routed_data[p]),
-                .pop_get_i       (pop_get_p),
-                .pop_valid_o     (pop_valid_p),
-                .pop_data_o      (pop_data_p),
-                .push_available_o(ex_fifo_available[p])
+        for (ex_split_gen = 0; ex_split_gen < STRUCT_EX_PATH; ex_split_gen = ex_split_gen+1) begin
+            valid_gather #(
+                .DATA_WIDTH(_BITWIDTH_EX_INST_WIDTH),
+                .ENTRIES   (INPUT_CHANNEL)
+            ) U_RS_GATHER (
+                .i_valid(ex_valid[ex_split_gen]),
+                .i_data (i_ist_ready_inst_data),
+                .o_valid(gather_ex_path[ex_split_gen]),
+                .o_data (gather_inst[ex_split_gen])
             );
         end
+
+        for (ex_split_gen = 0; ex_split_gen < STRUCT_EX_PATH; ex_split_gen = ex_split_gen+1) begin
+            fifo_multichan #(
+                .DATA_WIDTH    (_BITWIDTH_EX_INST_WIDTH),
+                .READ_CHANNEL  (STRUCT_RS_OUT_ENTRY[ex_split_gen]),
+                .WRITE_CHANNEL (INPUT_CHANNEL),
+                .MIN_FIFO_ENTRY(STRUCT_INST_STATE_ENTRIES),
+                .USE_BRAM      (1'b1)
+            ) U_RS_FIFO (
+                .clk           (clk),
+                .reset_n       (reset_n),
+                .i_flush       (1'b0),
+                .i_push        (gather_ex_path[ex_split_gen]),
+                .o_push_ready  (ex_fifos_ready[ex_split_gen]),
+                .i_push_data   (gather_inst[ex_split_gen]),
+                .i_pop         (i_ex_wait_inst_get[ex_offset(ex_split_gen) +: STRUCT_RS_OUT_ENTRY[ex_split_gen]]),
+                .o_pop_valid   (o_ex_wait_inst_valid[ex_offset(ex_split_gen) +: STRUCT_RS_OUT_ENTRY[ex_split_gen]]),
+                .o_pop_data    (o_ex_wait_inst_data[(ex_offset(ex_split_gen)*_BITWIDTH_EX_INST_WIDTH) 
+                                                     +: (STRUCT_RS_OUT_ENTRY[ex_split_gen]*_BITWIDTH_EX_INST_WIDTH)])
+            );
+        end
+
     endgenerate
 
-    // IST Ready handshake: active only when all internal path FIFOs can accept new pushes
-    assign o_ist_readyinst_get = &ex_fifo_available;
+    always_comb begin
+        ex_fifo_ready = {STRUCT_EX_PATH{1'b1}};
+
+        for (ex_fifo_ready_idx = 0; ex_fifo_ready_idx < STRUCT_EX_PATH; ex_fifo_ready_idx = ex_fifo_ready_idx+1) begin
+            if ( (&ex_fifos_ready[ex_fifo_ready_idx]) && (&ex_fifo_ready) ) ex_fifo_ready[ex_fifo_ready_idx] = 1'b1;
+            else ex_fifo_ready[ex_fifo_ready_idx] = 1'b0;
+        end
+
+        o_ist_ready_inst_get = {INPUT_CHANNEL{&ex_fifo_ready}};
+    end
 
 endmodule

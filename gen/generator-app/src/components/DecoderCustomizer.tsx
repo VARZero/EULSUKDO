@@ -146,7 +146,7 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
     onChangeInstructions(instructions.filter((inst) => inst.id !== id));
   };
 
-  const handleUpdateInstruction = (id: string, key: keyof InstructionConfig, val: any) => {
+  const handleUpdateInstruction = (id: string, key: keyof InstructionConfig, val: InstructionConfig[keyof InstructionConfig]) => {
     onChangeInstructions(
       instructions.map((inst) => (inst.id === id ? { ...inst, [key]: val } : inst))
     );
@@ -204,13 +204,13 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
 
   return (
     <main className="app-body" style={{ display: 'grid', gridTemplateColumns: '320px 1fr 400px', gap: '16px', height: 'calc(100vh - 70px)', overflow: 'hidden' }}>
-      
+
       {/* 1. Left Sidebar: Decoder Params & Formats builder */}
       <div className="panel sidebar" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', height: '100%' }}>
         <div className="panel-header">
           <h2 className="panel-title">Decoder Parameters</h2>
         </div>
-        
+
         <div className="sidebar-content" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* ISA Name Input */}
           <div className="form-group">
@@ -475,7 +475,7 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
 
                 return (
                   <tr key={inst.id} style={{ borderBottom: '1px solid #1a1a1a', height: '45px' }}>
-                    
+
                     {/* Name */}
                     <td style={{ padding: '4px' }}>
                       <input

@@ -38,7 +38,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({ config }) => {
   const maxBoxWidth = 120;
   const gap = 10;
   const totalAvailableWidth = 560; // 600px wrapper width - 40px margins
-  
+
   // Guard against zero cores
   const coreWidth = totalCores === 0 ? 0 : Math.min(maxBoxWidth, Math.floor((totalAvailableWidth - (totalCores - 1) * gap) / totalCores));
   const totalRowWidth = totalCores * coreWidth + (totalCores - 1) * gap;
@@ -147,7 +147,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({ config }) => {
             <rect x="220" y="220" width="360" height="40" rx="3" className="pipeline-node" />
             <text x="400" y="235" className="node-text">Rename & Register Mapping (PRF)</text>
             <text x="400" y="250" className="node-subtext">
-              1-Cycle Bitmap Allocator ({config.phyRegs} registers)
+              FIFO Allocator ({config.phyRegs} registers)
             </text>
           </g>
 
@@ -171,7 +171,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({ config }) => {
           {/* ==================== 5. EXECUTION CORES ==================== */}
           {/* Wrapper bounds for Execution Stage */}
           <rect x="100" y="400" width="600" height="60" rx="3" className="pipeline-node" style={{ fill: '#141414', stroke: '#222222' }} />
-          
+
           {totalCores > 0 ? (
             coreDrawList.map((core, idx) => {
               const cx = startX + idx * (coreWidth + gap);

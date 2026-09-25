@@ -86,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ config, onChange }) => {
         <h2 className="panel-title">Configuration</h2>
       </div>
       <div className="sidebar-content">
-        
+
         {/* Decode Width */}
         <div className="form-group">
           <label className="form-label">
@@ -158,9 +158,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ config, onChange }) => {
                 <span style={{ fontSize: '11px', color: core.stroke, fontWeight: 'bold' }}>EX PATH #{index + 1}</span>
                 <div style={{ display: 'flex', gap: '2px' }}>
                   {index > 0 && (
-                    <button 
-                      className="btn" 
-                      style={{ padding: '1px 4px', fontSize: '8px', borderColor: '#333', color: '#aaa', minWidth: '15px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+                    <button
+                      className="btn"
+                      style={{ padding: '1px 4px', fontSize: '8px', borderColor: '#333', color: '#aaa', minWidth: '15px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       onClick={() => handleMoveCore(index, 'up')}
                       title="Move Up"
                     >
@@ -168,9 +168,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ config, onChange }) => {
                     </button>
                   )}
                   {index < config.coresList.length - 1 && (
-                    <button 
-                      className="btn" 
-                      style={{ padding: '1px 4px', fontSize: '8px', borderColor: '#333', color: '#aaa', minWidth: '15px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+                    <button
+                      className="btn"
+                      style={{ padding: '1px 4px', fontSize: '8px', borderColor: '#333', color: '#aaa', minWidth: '15px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       onClick={() => handleMoveCore(index, 'down')}
                       title="Move Down"
                     >
@@ -180,9 +180,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ config, onChange }) => {
                 </div>
               </div>
               {config.coresList.length > 1 && (
-                <button 
-                  className="btn" 
-                  style={{ padding: '2px 8px', fontSize: '9px', borderColor: '#444', color: '#888' }} 
+                <button
+                  className="btn"
+                  style={{ padding: '2px 8px', fontSize: '9px', borderColor: '#444', color: '#888' }}
                   onClick={() => handleRemoveCore(core.id)}
                 >
                   Delete
@@ -232,9 +232,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ config, onChange }) => {
           </div>
         ))}
 
-        <button 
-          className="btn btn-primary" 
-          style={{ width: '100%', padding: '8px', fontSize: '11px', marginTop: '4px' }} 
+        <button
+          className="btn btn-primary"
+          style={{ width: '100%', padding: '8px', fontSize: '11px', marginTop: '4px' }}
           onClick={handleAddCore}
         >
           + Add New EX

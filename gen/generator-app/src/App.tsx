@@ -3,7 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { Visualizer } from './components/Visualizer';
 import { CodePreview } from './components/CodePreview';
 import { DecoderCustomizer } from './components/DecoderCustomizer';
-import { type SchedulerConfig, generateRTL } from './utils/rtlGenerator';
+import { type SchedulerConfig, generateRTL, validateSchedulerConfig } from './utils/rtlGenerator';
 import {
   type DecoderParamConfig,
   type InstructionFormat,
@@ -114,11 +114,22 @@ function App() {
   ]);
 
   // Validation function for the entire global CAD configuration schema
-  const validateFullConfig = (data: any): boolean => {
+  const validateFullConfig = (data: unknown): data is {
+    scheduler: SchedulerConfig;
+    decoder: DecoderParamConfig;
+    formats: InstructionFormat[];
+    instructions: InstructionConfig[];
+  } => {
+    const parsed = data as {
+      scheduler: SchedulerConfig;
+      decoder: DecoderParamConfig;
+      formats: InstructionFormat[];
+      instructions: InstructionConfig[];
+    };
     if (!data || typeof data !== 'object') return false;
 
     // 1. Scheduler Validation
-    if (!data.scheduler || typeof data.scheduler !== 'object') return false;
+    if (!parsed.scheduler || typeof parsed.scheduler !== 'object') return false;
     const schedParams = [
       'decodeWidth',
       'phyRegs',
@@ -130,11 +141,11 @@ function App() {
       'flowWindows'
     ];
     for (const p of schedParams) {
-      if (!(p in data.scheduler)) return false;
-      if (p !== 'coresList' && typeof data.scheduler[p] !== 'number') return false;
+      if (!(p in parsed.scheduler)) return false;
+      if (p !== 'coresList' && typeof (parsed.scheduler as unknown as Record<string, unknown>)[p] !== 'number') return false;
     }
-    if (!Array.isArray(data.scheduler.coresList)) return false;
-    for (const core of data.scheduler.coresList) {
+    if (!Array.isArray(parsed.scheduler.coresList)) return false;
+    for (const core of parsed.scheduler.coresList) {
       if (!core || typeof core !== 'object') return false;
       if (
         typeof core.id !== 'string' ||
@@ -145,16 +156,16 @@ function App() {
     }
 
     // 2. Decoder Parameters Validation
-    if (!data.decoder || typeof data.decoder !== 'object') return false;
+    if (!parsed.decoder || typeof parsed.decoder !== 'object') return false;
     const decParams = ['instBitWidth', 'instRegs', 'instOperands', 'instImm', 'microopBitWidth'];
     for (const p of decParams) {
-      if (!(p in data.decoder) || typeof data.decoder[p] !== 'number') return false;
+      if (!(p in parsed.decoder) || typeof (parsed.decoder as unknown as Record<string, unknown>)[p] !== 'number') return false;
     }
-    if (typeof data.decoder.isaName !== 'string') return false;
+    if (typeof parsed.decoder.isaName !== 'string') return false;
 
     // 3. Formats Validation
-    if (!Array.isArray(data.formats)) return false;
-    for (const fmt of data.formats) {
+    if (!Array.isArray(parsed.formats)) return false;
+    for (const fmt of parsed.formats) {
       if (!fmt || typeof fmt !== 'object') return false;
       if (typeof fmt.id !== 'string' || typeof fmt.name !== 'string' || !Array.isArray(fmt.fields)) return false;
       for (const fd of fmt.fields) {
@@ -170,8 +181,8 @@ function App() {
     }
 
     // 4. Instructions Validation
-    if (!Array.isArray(data.instructions)) return false;
-    for (const inst of data.instructions) {
+    if (!Array.isArray(parsed.instructions)) return false;
+    for (const inst of parsed.instructions) {
       if (!inst || typeof inst !== 'object') return false;
       const instFields = [
         'id',
@@ -248,7 +259,7 @@ function App() {
         } else {
           alert('Invalid EULSUKDO CAD configuration format. Please verify the JSON file structure.');
         }
-      } catch (err) {
+      } catch {
         alert('Failed to parse JSON file. Ensure it is a valid JSON document.');
       }
     };
@@ -256,7 +267,9 @@ function App() {
     e.target.value = ''; // Reset input to allow duplicate selection
   };
 
-  const generatedCode = generateRTL({ ...config, isaName: decoderConfig.isaName });
+  const rtlConfig = { ...config, ...decoderConfig };
+  const configError = validateSchedulerConfig(rtlConfig);
+  const generatedCode = configError ? '' : generateRTL(rtlConfig);
 
   return (
     <>
@@ -311,32 +324,32 @@ function App() {
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ display: 'flex', gap: '6px' }}>
-            <button 
-              className="btn" 
-              style={{ padding: '4px 10px', fontSize: '10px', borderColor: '#444', color: '#ccc', textTransform: 'uppercase', height: '26px', display: 'flex', alignItems: 'center' }} 
+            <button
+              className="btn"
+              style={{ padding: '4px 10px', fontSize: '10px', borderColor: '#444', color: '#ccc', textTransform: 'uppercase', height: '26px', display: 'flex', alignItems: 'center' }}
               onClick={handleExportJSON}
               title="Export all CAD & Decoder settings to JSON"
             >
               Export
             </button>
-            <button 
-              className="btn" 
-              style={{ padding: '4px 10px', fontSize: '10px', borderColor: '#444', color: '#ccc', textTransform: 'uppercase', height: '26px', display: 'flex', alignItems: 'center' }} 
+            <button
+              className="btn"
+              style={{ padding: '4px 10px', fontSize: '10px', borderColor: '#444', color: '#ccc', textTransform: 'uppercase', height: '26px', display: 'flex', alignItems: 'center' }}
               onClick={handleTriggerImport}
               title="Import CAD & Decoder settings from JSON"
             >
               Import
             </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              style={{ display: 'none' }} 
-              accept=".json" 
-              onChange={handleImportJSON} 
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              accept=".json"
+              onChange={handleImportJSON}
             />
           </div>
           <div className="app-subtitle" style={{ fontSize: '11px', color: '#666' }}>
-            Interactive Parameterized OOO Hardware Generator
+            Gen Scheduler / Decoder RTL Generator
           </div>
         </div>
       </header>
@@ -351,7 +364,10 @@ function App() {
           <Visualizer config={{ ...config, isaName: decoderConfig.isaName }} />
 
           {/* Right Side: Code Preview and file download triggers */}
-          <CodePreview code={generatedCode} />
+          <div className="code-preview-wrapper">
+            {configError && <div className="config-error">{configError}</div>}
+            <CodePreview code={generatedCode} />
+          </div>
         </main>
       ) : (
         <DecoderCustomizer

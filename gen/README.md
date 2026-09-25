@@ -1,8 +1,11 @@
-# 을숙도 Gen 스케줄러
+# 지금 만들고 있는 을숙도 스케줄러
 
-`gen`은 Gen2의 모듈 인스턴스 구성을 토대로 완성한 스케줄러 작업본이다. RTL은 `src/RTL`, 검증 테스트벤치는 `src/TB_UVM`에 있다. 기존 `gen`과 `gen2`는 현재 프로젝트에서 제거했다.
+여기가 현재 작업 중인 `gen/`입니다. 제가 Gen2에서 나눠 두었던 모듈과 인스턴스 연결을 바탕으로 스케줄러를 완성하고, 생성기와 파형을 보는 앱도 붙여 두었습니다.
 
-- RTL 검증: `./run_tests.sh`
-- 구조와 검증 범위: [VERIFICATION.md](VERIFICATION.md)
-- 생성기와 비주얼라이저: [WEB_APPS.md](WEB_APPS.md)
-- 후속 ISA 디코더·EX 설계 프롬프트: [prompt/README.md](prompt/README.md)
+- `src/RTL/`: NEL, IST, PRM, RS, WBC, FCL 같은 스케줄러 RTL입니다.
+- `src/TB_UVM/`: 모듈과 전체 스케줄러를 확인하는 테스트벤치입니다.
+- `generator-app/`: 설정한 구조의 top과 디코더, RTL 전체를 ZIP으로 내려받는 생성기입니다.
+- `sim_visualizer/`: 시뮬레이션 VCD에서 실제 신호가 어떻게 움직였는지 보는 앱입니다.
+- `prompt/`: ISA 디코더와 EX를 더 만들 때 참고할 프롬프트입니다.
+
+RTL은 `./run_tests.sh`로 확인할 수 있습니다. 어디까지 검증했는지, 원래 Gen2와 달라진 부분이 무엇인지는 [검증 기록](VERIFICATION.md)에 적었습니다. 두 앱의 실행법은 [웹앱 안내](WEB_APPS.md)에 있습니다.

@@ -5,6 +5,12 @@
 [한국어(Main)](README.md)
 **The translation used LLM. The author's main language is Korean.**
 
+## What can I try in this repository?
+
+I added two web apps to the current `gen/` scheduler. The [generator](gen/generator-app/README.md) lets you choose the structure and ISA definitions, then downloads the generated top, decoder, and RTL sources together as a ZIP. The [simulation visualizer](gen/sim_visualizer/README.md) reads a VCD and shows what each module actually did cycle by cycle. You can start with its included demo trace.
+
+The long explanation below describes the architecture idea and some older experiments. For the current RTL and what I have verified, see [gen/VERIFICATION.md](gen/VERIFICATION.md).
+
 ## What is this?
 
 This project aims to implement a processor architecture capable of:

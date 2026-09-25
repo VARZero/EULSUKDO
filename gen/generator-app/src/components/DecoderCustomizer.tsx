@@ -17,6 +17,9 @@ interface DecoderCustomizerProps {
   instructions: InstructionConfig[];
   onChangeInstructions: (i: InstructionConfig[]) => void;
   coresList: CoreTypeConfig[];
+  onDownloadProject: () => void;
+  downloadEnabled: boolean;
+  downloadError: string | null;
 }
 
 export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
@@ -27,6 +30,9 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
   instructions,
   onChangeInstructions,
   coresList,
+  onDownloadProject,
+  downloadEnabled,
+  downloadError,
 }) => {
   const [activeFormatId, setActiveFormatId] = useState<string | null>(formats[0]?.id || null);
   const [copied, setCopied] = useState(false);
@@ -188,18 +194,6 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
     } catch (err) {
       console.error('Failed to copy: ', err);
     }
-  };
-
-  const handleDownload = () => {
-    const blob = new Blob([generatedCode], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${decConfig.isaName || 'eulsukdo'}_decoder.sv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   return (
@@ -622,18 +616,19 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
       </div>
 
       {/* 3. Right Panel: Code Preview and file Download */}
-      <div className="panel code-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
+      <div className="panel code-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%', width: '100%', minWidth: 0 }}>
         <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 className="panel-title">Generated Decoder SV</h2>
           <div className="button-group">
             <button className="btn" onClick={handleCopy}>
               {copied ? 'Copied!' : 'Copy Code'}
             </button>
-            <button className="btn btn-primary" onClick={handleDownload}>
-              Download SV
+            <button className="btn btn-primary" onClick={onDownloadProject} disabled={!downloadEnabled} title={downloadError || undefined}>
+              Download Project
             </button>
           </div>
         </div>
+        {downloadError && <div className="config-error">{downloadError}</div>}
         <div className="code-container" style={{ flex: 1, overflowY: 'auto' }}>
           <pre className="code-pre">
             {generatedCode}

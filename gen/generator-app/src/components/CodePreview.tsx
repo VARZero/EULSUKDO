@@ -3,9 +3,11 @@ import { rtlSources } from '../utils/rtlGenerator';
 
 interface CodePreviewProps {
   code: string;
+  onDownloadProject: () => void;
+  downloadEnabled: boolean;
 }
 
-export const CodePreview: React.FC<CodePreviewProps> = ({ code }) => {
+export const CodePreview: React.FC<CodePreviewProps> = ({ code, onDownloadProject, downloadEnabled }) => {
   const [copied, setCopied] = useState(false);
   const [fileName, setFileName] = useState('eulsukdo_example_top.sv');
   const preview = fileName === 'eulsukdo_example_top.sv' ? code : rtlSources[fileName];
@@ -20,18 +22,6 @@ export const CodePreview: React.FC<CodePreviewProps> = ({ code }) => {
     }
   };
 
-  const handleDownload = () => {
-    const blob = new Blob([preview], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="panel code-panel">
       <div className="panel-header">
@@ -44,8 +34,8 @@ export const CodePreview: React.FC<CodePreviewProps> = ({ code }) => {
           <button className="btn" onClick={handleCopy} disabled={!preview}>
             {copied ? 'Copied!' : 'Copy Code'}
           </button>
-          <button className="btn btn-primary" onClick={handleDownload} disabled={!preview}>
-            Download SV
+          <button className="btn btn-primary" onClick={onDownloadProject} disabled={!code || !downloadEnabled}>
+            Download Project
           </button>
         </div>
       </div>

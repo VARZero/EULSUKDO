@@ -8,10 +8,13 @@ import {
   type DecoderParamConfig,
   type InstructionFormat,
   type InstructionConfig,
+  generateDecoderRTL,
 } from './utils/decoderGenerator';
+import { downloadSourceBundle } from './utils/sourceBundle';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'core' | 'decoder'>('core');
+  const [projectName, setProjectName] = useState('my_project');
 
   const [config, setConfig] = useState<SchedulerConfig>({
     decodeWidth: 2,
@@ -115,18 +118,21 @@ function App() {
 
   // Validation function for the entire global CAD configuration schema
   const validateFullConfig = (data: unknown): data is {
+    projectName?: string;
     scheduler: SchedulerConfig;
     decoder: DecoderParamConfig;
     formats: InstructionFormat[];
     instructions: InstructionConfig[];
   } => {
     const parsed = data as {
+      projectName?: string;
       scheduler: SchedulerConfig;
       decoder: DecoderParamConfig;
       formats: InstructionFormat[];
       instructions: InstructionConfig[];
     };
     if (!data || typeof data !== 'object') return false;
+    if (parsed.projectName !== undefined && typeof parsed.projectName !== 'string') return false;
 
     // 1. Scheduler Validation
     if (!parsed.scheduler || typeof parsed.scheduler !== 'object') return false;
@@ -221,6 +227,7 @@ function App() {
   // Serializes config, decoder, formats and instructions to eulsukdo_cad_config.json
   const handleExportJSON = () => {
     const fullConfig = {
+      projectName,
       scheduler: config,
       decoder: decoderConfig,
       formats: formatsList,
@@ -252,6 +259,7 @@ function App() {
       try {
         const parsed = JSON.parse(event.target?.result as string);
         if (validateFullConfig(parsed)) {
+          setProjectName(parsed.projectName ?? 'my_project');
           setConfig(parsed.scheduler);
           setDecoderConfig(parsed.decoder);
           setFormatsList(parsed.formats);
@@ -269,7 +277,13 @@ function App() {
 
   const rtlConfig = { ...config, ...decoderConfig };
   const configError = validateSchedulerConfig(rtlConfig);
+  const downloadError = configError || (!projectName.trim() ? '프로젝트명을 입력해야 ZIP을 받을 수 있습니다.' : null);
   const generatedCode = configError ? '' : generateRTL(rtlConfig);
+  const handleDownloadProject = () => {
+    if (configError || !projectName.trim()) return;
+    const decoderCode = generateDecoderRTL(decoderConfig, formatsList, instructions, config.coresList);
+    downloadSourceBundle(generatedCode, decoderCode, decoderConfig.isaName, projectName);
+  };
 
   return (
     <>
@@ -323,6 +337,17 @@ function App() {
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <label className="project-name-field">
+            <span>Project Name</span>
+            <input
+              type="text"
+              value={projectName}
+              maxLength={64}
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="my_project"
+              aria-label="Project Name"
+            />
+          </label>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button
               className="btn"
@@ -348,9 +373,6 @@ function App() {
               onChange={handleImportJSON}
             />
           </div>
-          <div className="app-subtitle" style={{ fontSize: '11px', color: '#666' }}>
-            Gen Scheduler / Decoder RTL Generator
-          </div>
         </div>
       </header>
 
@@ -365,8 +387,8 @@ function App() {
 
           {/* Right Side: Code Preview and file download triggers */}
           <div className="code-preview-wrapper">
-            {configError && <div className="config-error">{configError}</div>}
-            <CodePreview code={generatedCode} />
+            {downloadError && <div className="config-error">{downloadError}</div>}
+            <CodePreview code={generatedCode} onDownloadProject={handleDownloadProject} downloadEnabled={!!projectName.trim()} />
           </div>
         </main>
       ) : (
@@ -378,6 +400,9 @@ function App() {
           instructions={instructions}
           onChangeInstructions={setInstructions}
           coresList={config.coresList}
+          onDownloadProject={handleDownloadProject}
+          downloadEnabled={!configError && !!projectName.trim()}
+          downloadError={downloadError}
         />
       )}
     </>

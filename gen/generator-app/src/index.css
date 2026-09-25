@@ -78,6 +78,30 @@ body {
   font-weight: 400;
 }
 
+.project-name-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.project-name-field input {
+  width: 160px;
+  min-width: 0;
+  background: #1e1e1e;
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 5px 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+.project-name-field input:focus {
+  border-color: var(--primary-orange);
+}
+
 /* 3-Column Layout */
 .app-body {
   display: flex;
@@ -256,6 +280,25 @@ input[type="number"]:focus {
   width: 440px;
   background-color: #151515;
   border-right: none;
+}
+
+.code-panel .panel-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.code-panel .panel-title {
+  flex-basis: 100%;
+}
+
+.code-panel .panel-header select {
+  width: 100%;
+  max-width: 100%;
+}
+
+.code-panel .button-group {
+  margin-left: auto;
+  flex-wrap: wrap;
 }
 
 .code-container {

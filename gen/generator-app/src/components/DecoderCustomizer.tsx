@@ -384,15 +384,15 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
                 <div key={part.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '9px' }}>
                   <span>inst[</span>
                   <input aria-label="Source MSB" type="number" min="0" max={decConfig.instBitWidth - 1}
-                    style={{ width: '38px' }} value={part.sourceMsb}
+                    style={{ width: '38px', backgroundColor: '#0c0c0c', border: '1px solid #333', color: '#eee', padding: '3px' }} value={part.sourceMsb}
                     onChange={(e) => handleUpdateImmediatePart(activeFormat.id, part.id, 'sourceMsb', Number(e.target.value))} />
                   <span>:</span>
                   <input aria-label="Source LSB" type="number" min="0" max={decConfig.instBitWidth - 1}
-                    style={{ width: '38px' }} value={part.sourceLsb}
+                    style={{ width: '38px', backgroundColor: '#0c0c0c', border: '1px solid #333', color: '#eee', padding: '3px' }} value={part.sourceLsb}
                     onChange={(e) => handleUpdateImmediatePart(activeFormat.id, part.id, 'sourceLsb', Number(e.target.value))} />
                   <span>] → imm[</span>
                   <input aria-label="Immediate LSB" type="number" min="0" max={decConfig.instImm - 1}
-                    style={{ width: '38px' }} value={part.targetLsb}
+                    style={{ width: '38px', backgroundColor: '#0c0c0c', border: '1px solid #333', color: '#eee', padding: '3px' }} value={part.targetLsb}
                     onChange={(e) => handleUpdateImmediatePart(activeFormat.id, part.id, 'targetLsb', Number(e.target.value))} />
                   <span>+:]</span>
                   <button aria-label="Remove immediate part" style={{ background: 'transparent', border: 'none', color: '#ff2d55' }}

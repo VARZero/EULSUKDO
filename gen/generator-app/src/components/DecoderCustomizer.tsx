@@ -223,10 +223,10 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
   };
 
   return (
-    <main className="app-body" style={{ display: 'grid', gridTemplateColumns: '320px 1fr 400px', gap: '16px', height: 'calc(100vh - 70px)', overflow: 'hidden' }}>
+    <main className="app-body decoder-body">
 
       {/* 1. Left Sidebar: Decoder Params & Formats builder */}
-      <div className="panel sidebar" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', height: '100%' }}>
+      <div className="panel sidebar decoder-sidebar">
         <div className="panel-header">
           <h2 className="panel-title">Decoder Parameters</h2>
         </div>
@@ -497,7 +497,7 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
       </div>
 
       {/* 2. Center: Instruction DB Table */}
-      <div className="panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
+      <div className="panel decoder-instructions">
         <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 className="panel-title">Instruction Definitions Database</h2>
           <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={handleAddInstruction}>
@@ -505,7 +505,7 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+        <div className="decoder-instruction-scroll">
           <table className="instruction-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', color: '#ccc' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #222', textAlign: 'left', height: '30px' }}>
@@ -673,7 +673,7 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
       </div>
 
       {/* 3. Right Panel: Code Preview and file Download */}
-      <div className="panel code-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%', width: '100%', minWidth: 0 }}>
+      <div className="panel code-panel decoder-code-panel">
         <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 className="panel-title">Generated Decoder SV</h2>
           <div className="button-group">
@@ -686,7 +686,7 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
           </div>
         </div>
         {downloadError && <div className="config-error">{downloadError}</div>}
-        <div className="code-container" style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="code-container">
           <pre className="code-pre">
             {generatedCode}
           </pre>

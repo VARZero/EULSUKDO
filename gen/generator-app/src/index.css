@@ -52,6 +52,24 @@ body {
   padding: 0 24px;
 }
 
+.header-tabs {
+  display: flex;
+  gap: 8px;
+  margin-left: 32px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.header-action-buttons {
+  display: flex;
+  gap: 6px;
+}
+
 .logo-container {
   display: flex;
   align-items: center;
@@ -437,3 +455,168 @@ input[type="checkbox"] {
 .code-preview-wrapper { display: flex; flex-direction: column; flex: 0 0 440px; width: 440px; min-width: 0; overflow: hidden; }
 .code-preview-wrapper .code-panel { flex: 1; min-height: 0; width: 100%; }
 .config-error { padding: 10px; color: #ffad71; background: #352218; font-size: 12px; }
+
+.decoder-body {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 400px;
+  gap: 16px;
+  height: calc(100vh - 70px);
+  overflow: hidden;
+}
+
+.decoder-sidebar {
+  gap: 12px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.decoder-instructions {
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.decoder-instruction-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.decoder-code-panel {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+@media (max-width: 1200px) {
+  #root {
+    width: 100%;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .app-header {
+    height: auto;
+    min-height: 48px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 20px;
+  }
+
+  .header-tabs {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .app-body {
+    flex: none;
+    height: auto;
+    overflow: visible;
+  }
+
+  .core-body,
+  .decoder-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .core-body > .sidebar,
+  .decoder-sidebar {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  .core-body > .canvas-container {
+    flex: none;
+    overflow: visible;
+  }
+
+  .core-body .canvas-content {
+    flex: none;
+    height: min(65vw, 560px);
+    min-height: 330px;
+  }
+
+  .code-preview-wrapper {
+    flex: none;
+    width: 100%;
+    overflow: visible;
+  }
+
+  .code-preview-wrapper .code-panel,
+  .decoder-code-panel {
+    height: auto;
+    min-height: 460px;
+  }
+
+  .code-preview-wrapper .code-container,
+  .decoder-code-panel .code-container {
+    flex: none;
+    height: 400px;
+  }
+
+  .decoder-instructions {
+    width: 100%;
+    height: auto;
+    overflow: hidden;
+  }
+
+  .decoder-instruction-scroll {
+    flex: none;
+    overflow-x: auto;
+  }
+
+  .decoder-instruction-scroll .instruction-table {
+    min-width: 900px;
+  }
+
+  .decoder-code-panel {
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .core-body > .panel,
+  .decoder-body > .panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding: 10px 12px;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+
+  .project-name-field {
+    flex: 1 1 100%;
+  }
+
+  .project-name-field input {
+    flex: 1;
+  }
+
+  .header-action-buttons {
+    margin-left: auto;
+  }
+
+  .header-tabs .tab-btn {
+    flex: 1;
+    padding: 8px 4px !important;
+    font-size: 10px !important;
+  }
+
+  .core-body .canvas-content {
+    min-height: 300px;
+    padding: 12px;
+  }
+}

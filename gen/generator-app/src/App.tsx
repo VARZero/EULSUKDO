@@ -302,14 +302,14 @@ function App() {
   return (
     <>
       {/* SoundCloud Styled Top Header */}
-      <header className="app-header" style={{ display: 'flex', alignItems: 'center' }}>
+      <header className="app-header">
         <div className="logo-container" style={{ display: 'flex', alignItems: 'center' }}>
           <div className="sc-orange-bar" />
           <h1 className="app-title" style={{ margin: 0 }}>EULSUKDO CORE CAD</h1>
         </div>
 
         {/* Tab switcher buttons */}
-        <div style={{ display: 'flex', gap: '8px', marginLeft: '32px' }}>
+        <div className="header-tabs">
           <button
             className={`tab-btn ${activeTab === 'core' ? 'active' : ''}`}
             style={{
@@ -350,7 +350,7 @@ function App() {
           </button>
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className="header-actions">
           <label className="project-name-field">
             <span>Project Name</span>
             <input
@@ -362,7 +362,7 @@ function App() {
               aria-label="Project Name"
             />
           </label>
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div className="header-action-buttons">
             <button
               className="btn"
               style={{ padding: '4px 10px', fontSize: '10px', borderColor: '#444', color: '#ccc', textTransform: 'uppercase', height: '26px', display: 'flex', alignItems: 'center' }}
@@ -392,7 +392,7 @@ function App() {
 
       {/* Conditional rendering based on the active tab */}
       {activeTab === 'core' ? (
-        <main className="app-body">
+        <main className="app-body core-body">
           {/* Left Side: Parameters Slider Panel */}
           <Sidebar config={config} onChange={setConfig} />
 

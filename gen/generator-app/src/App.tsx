@@ -8,6 +8,7 @@ import {
   type DecoderParamConfig,
   type InstructionFormat,
   type InstructionConfig,
+  immediateExpression,
   generateDecoderRTL,
 } from './utils/decoderGenerator';
 import { downloadSourceBundle } from './utils/sourceBundle';
@@ -184,6 +185,15 @@ function App() {
           typeof fd.role !== 'string'
         ) return false;
       }
+      if (fmt.signExtendImmediate !== undefined && typeof fmt.signExtendImmediate !== 'boolean') return false;
+      if (fmt.immediateParts !== undefined) {
+        if (!Array.isArray(fmt.immediateParts)) return false;
+        for (const part of fmt.immediateParts) {
+          if (!part || typeof part.id !== 'string' ||
+              !Number.isInteger(part.sourceMsb) || !Number.isInteger(part.sourceLsb) ||
+              !Number.isInteger(part.targetLsb)) return false;
+        }
+      }
     }
 
     // 4. Instructions Validation
@@ -277,10 +287,14 @@ function App() {
 
   const rtlConfig = { ...config, ...decoderConfig };
   const configError = validateSchedulerConfig(rtlConfig);
-  const downloadError = configError || (!projectName.trim() ? '프로젝트명을 입력해야 ZIP을 받을 수 있습니다.' : null);
+  const invalidImmediate = formatsList.find((fmt) => fmt.immediateParts?.length &&
+    !immediateExpression(fmt, decoderConfig.instImm, decoderConfig.instBitWidth));
+  const downloadError = configError || (invalidImmediate
+    ? `${invalidImmediate.name} 즉시값 비트 범위가 겹치거나 유효하지 않습니다.` : null) ||
+    (!projectName.trim() ? '프로젝트명을 입력해야 ZIP을 받을 수 있습니다.' : null);
   const generatedCode = configError ? '' : generateRTL(rtlConfig);
   const handleDownloadProject = () => {
-    if (configError || !projectName.trim()) return;
+    if (downloadError) return;
     const decoderCode = generateDecoderRTL(decoderConfig, formatsList, instructions, config.coresList);
     downloadSourceBundle(generatedCode, decoderCode, decoderConfig.isaName, projectName);
   };
@@ -388,7 +402,7 @@ function App() {
           {/* Right Side: Code Preview and file download triggers */}
           <div className="code-preview-wrapper">
             {downloadError && <div className="config-error">{downloadError}</div>}
-            <CodePreview code={generatedCode} onDownloadProject={handleDownloadProject} downloadEnabled={!!projectName.trim()} />
+            <CodePreview code={generatedCode} onDownloadProject={handleDownloadProject} downloadEnabled={!downloadError} />
           </div>
         </main>
       ) : (
@@ -401,7 +415,7 @@ function App() {
           onChangeInstructions={setInstructions}
           coresList={config.coresList}
           onDownloadProject={handleDownloadProject}
-          downloadEnabled={!configError && !!projectName.trim()}
+          downloadEnabled={!downloadError}
           downloadError={downloadError}
         />
       )}

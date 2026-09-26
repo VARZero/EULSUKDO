@@ -10,7 +10,7 @@ npm ci
 npm run dev
 ```
 
-상단 `Project Name`을 적고 화면 오른쪽의 `Download Project`를 누르면 `(프로젝트명)_eulsukdo_rtl.zip`을 받습니다. 안에는 `(프로젝트명)_eulsukdo_top.sv`, 디코더, `gen/src/RTL/`에 있는 모듈 10개가 들어갑니다. `Copy Code`는 화면에 선택한 파일 하나만 복사합니다. 설정을 나중에 다시 열고 싶다면 상단 `Export`로 JSON을 저장하면 됩니다.
+상단 `Project Name`을 적고 화면 오른쪽의 `Download Project`를 누르면 `(프로젝트명)_eulsukdo_rtl.zip`을 받습니다. 압축 안의 `RTL/`에는 생성 TOP과 디코더, `eulsukdo_rtl/`에는 을숙도 모듈 10개, `ex_rtl/`에는 EX RTL을 넣을 빈 폴더가 있습니다. `Copy Code`는 화면에 선택한 파일 하나만 복사합니다. 설정을 나중에 다시 열고 싶다면 상단 `Export`로 JSON을 저장하면 됩니다.
 
 GitHub Pages에서도 생성기를 쓸 수 있게 `release_v1` 브랜치가 바뀌면 자동으로 빌드·배포하도록 설정했습니다. 저장소의 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 설정하면 `https://varzero.github.io/EULSUKDO/`에서 열립니다. 로컬 실행은 위 명령 그대로 쓰면 됩니다.
 

@@ -19,10 +19,48 @@ export interface FormatField {
   role: FieldRole;
 }
 
+export interface ImmediatePart {
+  id: string;
+  sourceMsb: number;
+  sourceLsb: number;
+  targetLsb: number;
+}
+
 export interface InstructionFormat {
   id: string;
   name: string;
   fields: FormatField[];
+  immediateParts?: ImmediatePart[];
+  signExtendImmediate?: boolean;
+}
+
+export function immediateExpression(fmt: InstructionFormat, instImm: number, instBitWidth: number): string | null {
+  const parts = fmt.immediateParts;
+  if (!parts?.length) return null;
+  const ordered = [...parts].sort((a, b) => b.targetLsb - a.targetLsb);
+  const signBit = ordered[0].sourceMsb;
+  const chunks: string[] = [];
+  let nextBit = instImm;
+
+  for (const part of ordered) {
+    const width = part.sourceMsb - part.sourceLsb + 1;
+    const topBit = part.targetLsb + width - 1;
+    if (!Number.isInteger(width) || !Number.isInteger(part.targetLsb) ||
+        part.sourceLsb < 0 || part.sourceMsb >= instBitWidth ||
+        width < 1 || part.targetLsb < 0 || topBit >= nextBit) {
+      return null;
+    }
+    const gap = nextBit - topBit - 1;
+    if (gap) {
+      chunks.push(chunks.length === 0 && fmt.signExtendImmediate
+        ? `{${gap}{inst_i[${signBit}]}}` : `${gap}'b0`);
+    }
+    chunks.push(part.sourceMsb === part.sourceLsb
+      ? `inst_i[${part.sourceMsb}]` : `inst_i[${part.sourceMsb}:${part.sourceLsb}]`);
+    nextBit = part.targetLsb;
+  }
+  if (nextBit) chunks.push(`${nextBit}'b0`);
+  return `{${chunks.join(', ')}}`;
 }
 
 export interface InstructionConfig {
@@ -110,7 +148,10 @@ export function generateDecoderRTL(
 
     // Immediate calculation with proper sign extension
     let immAssign = 'imm_o = 0;';
-    if (immField) {
+    const mappedImmediate = immediateExpression(fmt, instImm, instBitWidth);
+    if (mappedImmediate) {
+      immAssign = `imm_o = ${mappedImmediate};`;
+    } else if (immField) {
       const fieldLen = immField.msb - immField.lsb + 1;
       if (fieldLen < instImm) {
         immAssign = `imm_o = {{${instImm - fieldLen}{fmt_${fmt.name}_${immField.name}[${fieldLen - 1}]}}, fmt_${fmt.name}_${immField.name}};`;
@@ -127,7 +168,7 @@ export function generateDecoderRTL(
     decodesLogic += `            ${rsAssign}\n`;
     decodesLogic += `            ${immAssign}\n`;
     decodesLogic += `            exception_o    = 1'b0;\n`;
-    decodesLogic += `            newreg_alloc_o = ${inst.newregAlloc ? "1'b1" : "1'b0"};\n`;
+    decodesLogic += `            newreg_alloc_o = ${inst.newregAlloc ? "(rd_o != 0)" : "1'b0"};\n`;
     decodesLogic += `            jump_o         = ${inst.jump ? "1'b1" : "1'b0"};\n`;
     decodesLogic += `            jump_reg_o     = ${inst.jumpReg ? "1'b1" : "1'b0"};\n`;
     decodesLogic += `            branch_o       = ${inst.branch ? "1'b1" : "1'b0"};\n`;

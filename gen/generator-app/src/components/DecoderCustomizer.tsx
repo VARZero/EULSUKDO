@@ -4,6 +4,7 @@ import {
   type InstructionFormat,
   type InstructionConfig,
   type FormatField,
+  type ImmediatePart,
   type FieldRole,
   generateDecoderRTL,
 } from '../utils/decoderGenerator';
@@ -70,6 +71,31 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
     onChangeFormats(
       formats.map((f) => (f.id === id ? { ...f, name: name.replace(/\s+/g, '_') } : f))
     );
+  };
+
+  const handleAddImmediatePart = (formatId: string) => {
+    onChangeFormats(formats.map((fmt) => fmt.id === formatId ? {
+      ...fmt,
+      immediateParts: [...(fmt.immediateParts || []), {
+        id: `imm-${Date.now()}`, sourceMsb: 31, sourceLsb: 20, targetLsb: 0,
+      }],
+    } : fmt));
+  };
+
+  const handleUpdateImmediatePart = (formatId: string, partId: string,
+    key: keyof ImmediatePart, value: number) => {
+    onChangeFormats(formats.map((fmt) => fmt.id === formatId ? {
+      ...fmt,
+      immediateParts: (fmt.immediateParts || []).map((part) =>
+        part.id === partId ? { ...part, [key]: value } : part),
+    } : fmt));
+  };
+
+  const handleRemoveImmediatePart = (formatId: string, partId: string) => {
+    onChangeFormats(formats.map((fmt) => fmt.id === formatId ? {
+      ...fmt,
+      immediateParts: (fmt.immediateParts || []).filter((part) => part.id !== partId),
+    } : fmt));
   };
 
   const handleAddField = (fmtId: string) => {
@@ -343,6 +369,37 @@ export const DecoderCustomizer: React.FC<DecoderCustomizerProps> = ({
                   onChange={(e) => handleUpdateFormatName(activeFormat.id, e.target.value)}
                 />
               </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#888' }}>Immediate Bit Mapping</span>
+                <button className="btn" style={{ padding: '1px 4px', fontSize: '8px' }}
+                  onClick={() => handleAddImmediatePart(activeFormat.id)}>+ Add Part</button>
+              </div>
+              <label style={{ fontSize: '9px', color: '#888' }}>
+                <input type="checkbox" checked={!!activeFormat.signExtendImmediate}
+                  onChange={(e) => onChangeFormats(formats.map((fmt) => fmt.id === activeFormat.id
+                    ? { ...fmt, signExtendImmediate: e.target.checked } : fmt))} /> Sign extend upper bits
+              </label>
+              {(activeFormat.immediateParts || []).map((part) => (
+                <div key={part.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '9px' }}>
+                  <span>inst[</span>
+                  <input aria-label="Source MSB" type="number" min="0" max={decConfig.instBitWidth - 1}
+                    style={{ width: '38px' }} value={part.sourceMsb}
+                    onChange={(e) => handleUpdateImmediatePart(activeFormat.id, part.id, 'sourceMsb', Number(e.target.value))} />
+                  <span>:</span>
+                  <input aria-label="Source LSB" type="number" min="0" max={decConfig.instBitWidth - 1}
+                    style={{ width: '38px' }} value={part.sourceLsb}
+                    onChange={(e) => handleUpdateImmediatePart(activeFormat.id, part.id, 'sourceLsb', Number(e.target.value))} />
+                  <span>] → imm[</span>
+                  <input aria-label="Immediate LSB" type="number" min="0" max={decConfig.instImm - 1}
+                    style={{ width: '38px' }} value={part.targetLsb}
+                    onChange={(e) => handleUpdateImmediatePart(activeFormat.id, part.id, 'targetLsb', Number(e.target.value))} />
+                  <span>+:]</span>
+                  <button aria-label="Remove immediate part" style={{ background: 'transparent', border: 'none', color: '#ff2d55' }}
+                    onClick={() => handleRemoveImmediatePart(activeFormat.id, part.id)}>✕</button>
+                </div>
+              ))}
+              <span style={{ fontSize: '9px', color: '#666' }}>윗부분은 부호 확장 또는 0으로 채웁니다. 비어 있으면 기존 imm 필드를 사용합니다.</span>
 
               {/* Fields List */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>

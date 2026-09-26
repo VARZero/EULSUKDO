@@ -41,39 +41,32 @@ PRM의 갱신 폭·버퍼·반환 폭과 flow 창 수는 현재 화면 입력에
 
 1. 왼쪽에서 `ISA Name`, 명령 길이, 논리 레지스터 수, 소스 오퍼랜드 수, immediate 폭을 정합니다. `ISA Name`이 `rv32i`라면 ZIP에 `rv32i_decoder.sv`가 들어갑니다. 지금 지원하는 소스 오퍼랜드 수는 **2개**입니다.
 2. `CUSTOM FORMATS`에서 포맷을 고르고 필드 이름과 `MSB`/`LSB`, 역할을 설정합니다. 역할은 조건 비교, `rd`, `rs1`, `rs2`, `imm`, 사용하지 않음 중 하나입니다. `+ Add`와 `+ Add Field`로 포맷과 필드를 늘릴 수 있습니다.
-3. 가운데 명령 표에서 opcode·funct 조건, `EX MAPPING`, `UOP`, 목적 레지스터 할당(`ALLOC`), 점프·분기 플래그를 정합니다. `+ Add Instruction`과 `Remove`로 목록을 바꿉니다.
-4. 오른쪽에서 생성된 디코더 코드를 확인합니다. `Copy Code`는 디코더 코드만 복사하고 `Download Project`는 구조 탭과 같은 ZIP을 받습니다.
+3. S/B/J처럼 즉시값 비트가 흩어진 포맷은 `Immediate Bit Mapping`의 `+ Add Part`로 구간을 추가합니다. 각 구간의 `inst[MSB:LSB]`와 결과 즉시값의 시작 비트(`imm LSB`)를 적습니다. 위쪽 빈 비트를 부호로 채우려면 `Sign extend upper bits`를 켭니다. 구간 사이의 빈 비트는 0으로 채웁니다. 구간이 겹치거나 범위를 벗어나면 다운로드가 막힙니다. 매핑이 없는 포맷은 기존 `imm` 역할 필드를 사용합니다.
+4. 가운데 명령 표에서 opcode·funct 조건, `EX MAPPING`, `UOP`, 목적 레지스터 할당(`ALLOC`), 점프·분기 플래그를 정합니다. `+ Add Instruction`과 `Remove`로 목록을 바꿉니다.
+5. 오른쪽에서 생성된 디코더 코드를 확인합니다. `Copy Code`는 디코더 코드만 복사하고 `Download Project`는 구조 탭과 같은 ZIP을 받습니다.
 
-처음 들어 있는 ADD/SUB/LW는 **예제 명령 3개**입니다. 전체 RV32I 구현이 아닙니다. 현재 필드 편집기는 한 필드의 연속 비트 구간을 immediate로 지정하므로, 비트가 흩어진 S/B/J형 immediate는 생성 로직을 확장해야 합니다. uop 번호도 실제로 연결할 EX와 맞춰 정해야 합니다.
+처음 들어 있는 ADD/SUB/LW는 **예제 명령 3개**입니다. 전체 RV32I 구현이 아닙니다. `examples/rv32i_4decode_5issue.json`은 4 Decode, 1 Branch·3 ALU·1 Memory, 개발·디버깅 명령을 제외한 RV32I 38개 명령의 예제 설정입니다. 상단 `Import`로 불러올 수 있습니다. uop 번호는 실제로 연결할 EX와 맞춰 정해야 합니다.
 
 ## 4. 프로젝트 ZIP 받기
 
 구조 탭과 디코더 탭 어느 쪽에서든 `Download Project`를 누르면 `(프로젝트명)_eulsukdo_rtl.zip`이 내려옵니다. 예를 들어 `Project Name`이 `my_project`이면 `my_project_eulsukdo_rtl.zip`이고, 압축 안의 top은 `my_project_eulsukdo_top.sv`입니다. 빈 이름은 다운로드할 수 없고, 공백이나 파일 이름에 쓸 수 없는 문자는 `_`로 바뀝니다. 한글 이름도 사용할 수 있습니다. 현재 파일 선택 메뉴가 원본 RTL을 가리키고 있어도 **ZIP 내용은 같습니다.**
 
 ```text
-<프로젝트명>_eulsukdo_top.sv  ← 지금 구조·ISA 설정을 적용한 top
-<ISA 이름>_decoder.sv         ← 지금 명령 정의를 적용한 디코더
 RTL/
-  _element_logics.sv
-  eulsukdo_scheduler.sv
-  flow_control_logic.sv
-  flow_detect_unit.sv
-  instruction_state_table.sv
-  new_entry_logic.sv
-  new_entry_logic_agent.sv
-  physical_register_mapper.sv
-  ready_station.sv
-  write_back_concatenation.sv
+  <프로젝트명>_eulsukdo_top.sv  ← 지금 구조·ISA 설정을 적용한 top
+  <ISA 이름>_decoder.sv         ← 지금 명령 정의를 적용한 디코더
+  eulsukdo_rtl/               ← 을숙도 스케줄러 RTL 10개
+  ex_rtl/                     ← 사용자 EX RTL을 넣을 빈 폴더
 ```
 
 압축을 푼 자리에서 기본 설정 파일을 문법 검사하는 예시는 다음과 같습니다.
 
 ```sh
 verilator --lint-only --top-module eulsukdo_example_top \
-  my_project_eulsukdo_top.sv rv32i_decoder.sv RTL/*.sv
+  RTL/my_project_eulsukdo_top.sv RTL/rv32i_decoder.sv RTL/eulsukdo_rtl/*.sv
 ```
 
-파일 이름만 프로젝트명에 맞춰 바뀌며, SystemVerilog 안의 모듈 이름은 `eulsukdo_example_top` 그대로입니다. ZIP에는 **스케줄러와 디코더 소스**가 들어갑니다. 명령 메모리, 실제 ALU/분기/메모리 EX, 데이터 메모리와 실행 프로그램은 들어 있지 않습니다. 즉 ZIP만으로 완성된 CPU를 실행할 수는 없습니다. 디코더의 `exception_o`도 현재 스케줄러에서 trap 출력으로 이어지지 않습니다.
+파일 이름만 프로젝트명에 맞춰 바뀌며, SystemVerilog 안의 모듈 이름은 `eulsukdo_example_top` 그대로입니다. TOP 끝에는 `EX Area START/END` 주석이 있어서 EX 인스턴스를 그 사이에 추가할 수 있습니다. ZIP에는 **스케줄러와 디코더 소스**가 들어갑니다. `ex_rtl/`은 아직 빈 폴더이고, 명령 메모리, 실제 ALU/분기/메모리 EX, 데이터 메모리와 실행 프로그램은 들어 있지 않습니다. 즉 ZIP만으로 완성된 CPU를 실행할 수는 없습니다. 디코더의 `exception_o`도 현재 스케줄러에서 trap 출력으로 이어지지 않습니다.
 
 ## 5. 설정 저장하고 다시 열기
 
@@ -81,4 +74,4 @@ verilator --lint-only --top-module eulsukdo_example_top \
 
 ## 직접 확인한 결과
 
-브라우저에서 decode 폭을 2에서 3으로 바꾸고 `Download Project`를 눌렀습니다. 내려받은 ZIP의 top에 `STRUCT_DECODE_NEW_INST = 3`이 들어 있었고, 12개 `.sv` 파일이 모두 들어 있었습니다. 프로젝트명을 `내 프로젝트: 1`로 바꿨을 때는 `내_프로젝트_1_eulsukdo_rtl.zip`으로 저장됐고, 디코더 탭에서도 같은 이름으로 ZIP을 받았습니다. `Export` JSON에도 프로젝트명이 들어 있었습니다. 이후 `topname_check`로 받은 ZIP 안에서 `topname_check_eulsukdo_top.sv`를 확인하고, 압축을 풀어 Verilator lint를 다시 통과했습니다. 앱 빌드와 lint도 통과했습니다.
+4 Decode·5 Issue 예제 설정으로 ZIP을 만들고 압축 검사를 통과했습니다. `RTL/` 바로 아래에 TOP과 디코더가 있고, `RTL/eulsukdo_rtl/`에 10개 원본 모듈, `RTL/ex_rtl/`에 빈 폴더가 만들어지는 것도 확인했습니다. 생성된 TOP과 디코더를 포함한 전체 소스는 Verilator lint를 통과했고, S/B/J/U/shift 즉시값은 디코더 시뮬레이션으로 확인했습니다. 앱 빌드와 lint도 통과했습니다.

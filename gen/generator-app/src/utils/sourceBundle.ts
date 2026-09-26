@@ -97,9 +97,10 @@ export function projectTopFileName(projectName: string): string {
 
 export function buildSourceBundle(topSource: string, decoderSource: string, isaName: string, projectName: string): Uint8Array {
   return createZip({
-    [projectTopFileName(projectName)]: topSource,
-    [`${isaName}_decoder.sv`]: decoderSource,
-    ...Object.fromEntries(Object.entries(rtlSources).map(([name, source]) => [`RTL/${name}`, source])),
+    [`RTL/${projectTopFileName(projectName)}`]: topSource,
+    [`RTL/${isaName}_decoder.sv`]: decoderSource,
+    ...Object.fromEntries(Object.entries(rtlSources).map(([name, source]) => [`RTL/eulsukdo_rtl/${name}`, source])),
+    'RTL/ex_rtl/': '',
   });
 }
 

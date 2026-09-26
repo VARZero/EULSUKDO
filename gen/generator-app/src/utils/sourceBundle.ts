@@ -118,5 +118,6 @@ export function downloadSourceBundle(topSource: string, decoderSource: string, i
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Give the browser time to start saving the blob before releasing its URL.
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }

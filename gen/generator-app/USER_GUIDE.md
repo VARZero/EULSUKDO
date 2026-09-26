@@ -89,7 +89,3 @@ ZIP에는 **스케줄러와 디코더 소스**가 들어갑니다. `ex_rtl/`은 
 ## 5. 설정 저장하고 다시 열기
 
 상단 `Export`는 프로젝트명, 구조 값, ISA 파라미터, 포맷과 명령 목록을 `eulsukdo_cad_config.json`으로 저장합니다. 다시 작업할 때 `Import`에서 이 파일을 고르면 설정을 복원합니다. 예전에 저장한 JSON에 프로젝트명이 없으면 기본값 `my_project`를 씁니다. 같은 JSON을 [비주얼라이저](../sim_visualizer/USER_GUIDE.md)의 `Gen 구조 JSON 업로드`에도 넣을 수 있습니다. JSON은 구조 수치를 보여 주기 위한 것이고, 비주얼라이저의 실제 신호값은 VCD에서 읽습니다.
-
-## 직접 확인한 결과
-
-4 Decode·5 Issue 예제 설정으로 ZIP을 만들고 압축 검사를 통과했습니다. `RTL/` 바로 아래에 TOP과 디코더가 있고, `RTL/eulsukdo_rtl/`에 10개 원본 모듈, `RTL/ex_rtl/`에 빈 폴더가 만들어지는 것도 확인했습니다. 생성된 TOP과 디코더를 포함한 전체 소스는 Verilator lint를 통과했고, S/B/J/U/shift 즉시값은 디코더 시뮬레이션으로 확인했습니다. 앱 빌드와 lint도 통과했습니다.

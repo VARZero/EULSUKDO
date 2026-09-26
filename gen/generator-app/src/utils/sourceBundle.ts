@@ -95,12 +95,14 @@ export function projectTopFileName(projectName: string): string {
   return `${safeProjectName(projectName)}_eulsukdo_top.sv`;
 }
 
-export function buildSourceBundle(topSource: string, decoderSource: string, isaName: string, projectName: string): Uint8Array {
+export function buildSourceBundle(topSource: string, decoderSource: string, isaName: string, projectName: string, settingsJson: string): Uint8Array {
+  const projectDir = safeProjectName(projectName);
   return createZip({
-    [`RTL/${projectTopFileName(projectName)}`]: topSource,
-    [`RTL/${isaName}_decoder.sv`]: decoderSource,
-    ...Object.fromEntries(Object.entries(rtlSources).map(([name, source]) => [`RTL/eulsukdo_rtl/${name}`, source])),
-    'RTL/ex_rtl/': '',
+    [`${projectDir}/eulsukdo_cad_config.json`]: settingsJson,
+    [`${projectDir}/RTL/${projectTopFileName(projectName)}`]: topSource,
+    [`${projectDir}/RTL/${isaName}_decoder.sv`]: decoderSource,
+    ...Object.fromEntries(Object.entries(rtlSources).map(([name, source]) => [`${projectDir}/RTL/eulsukdo_rtl/${name}`, source])),
+    [`${projectDir}/RTL/ex_rtl/`]: '',
   });
 }
 
@@ -108,8 +110,8 @@ export function projectArchiveName(projectName: string): string {
   return `${safeProjectName(projectName)}_eulsukdo_rtl.zip`;
 }
 
-export function downloadSourceBundle(topSource: string, decoderSource: string, isaName: string, projectName: string) {
-  const archive = buildSourceBundle(topSource, decoderSource, isaName, projectName);
+export function downloadSourceBundle(topSource: string, decoderSource: string, isaName: string, projectName: string, settingsJson: string) {
+  const archive = buildSourceBundle(topSource, decoderSource, isaName, projectName, settingsJson);
   const blob = new Blob([new Uint8Array(archive).buffer as ArrayBuffer], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

@@ -59,24 +59,27 @@ PRM의 갱신 폭·버퍼·반환 폭과 flow 창 수는 현재 화면 입력에
 
 ## 4. 프로젝트 ZIP 받기
 
-구조 탭과 디코더 탭 어느 쪽에서든 `Download Project`를 누르면 `(프로젝트명)_eulsukdo_rtl.zip`이 내려옵니다. 예를 들어 `Project Name`이 `my_project`이면 `my_project_eulsukdo_rtl.zip`이고, 압축 안의 top은 `my_project_eulsukdo_top.sv`입니다. 빈 이름은 다운로드할 수 없고, 공백이나 파일 이름에 쓸 수 없는 문자는 `_`로 바뀝니다. 한글 이름도 사용할 수 있습니다. 현재 파일 선택 메뉴가 원본 RTL을 가리키고 있어도 **ZIP 내용은 같습니다.**
+구조 탭과 디코더 탭 어느 쪽에서든 `Download Project`를 누르면 `(프로젝트명)_eulsukdo_rtl.zip`이 내려옵니다. 예를 들어 `Project Name`이 `my_project`이면 `my_project_eulsukdo_rtl.zip`이고, 압축을 풀면 `my_project/` 디렉토리가 생깁니다. 그 안의 top은 `my_project_eulsukdo_top.sv`입니다. 빈 이름은 다운로드할 수 없고, 공백이나 파일 이름에 쓸 수 없는 문자는 ZIP 이름과 최상위 디렉토리 이름에서 `_`로 바뀝니다. 한글 이름도 사용할 수 있습니다. 현재 파일 선택 메뉴가 원본 RTL을 가리키고 있어도 **ZIP 내용은 같습니다.**
 
 ```text
-RTL/
-  <프로젝트명>_eulsukdo_top.sv  ← 지금 구조·ISA 설정을 적용한 top
-  <ISA 이름>_decoder.sv         ← 지금 명령 정의를 적용한 디코더
-  eulsukdo_rtl/               ← 을숙도 스케줄러 RTL 10개
-  ex_rtl/                     ← 사용자 EX RTL을 넣을 빈 폴더
+<프로젝트명>/
+  eulsukdo_cad_config.json     ← 지금 화면의 설정; Import로 다시 열 수 있음
+  RTL/
+    <프로젝트명>_eulsukdo_top.sv  ← 지금 구조·ISA 설정을 적용한 top
+    <ISA 이름>_decoder.sv         ← 지금 명령 정의를 적용한 디코더
+    eulsukdo_rtl/               ← 을숙도 스케줄러 RTL 10개
+    ex_rtl/                     ← 사용자 EX RTL을 넣을 빈 폴더
 ```
 
-압축을 푼 자리에서 기본 설정 파일을 문법 검사하는 예시는 다음과 같습니다.
+압축을 푼 프로젝트 디렉토리에서 기본 설정 파일을 문법 검사하는 예시는 다음과 같습니다.
 
 ```sh
+cd my_project
 verilator --lint-only --top-module eulsukdo_example_top \
   RTL/my_project_eulsukdo_top.sv RTL/rv32i_decoder.sv RTL/eulsukdo_rtl/*.sv
 ```
 
-파일 이름만 프로젝트명에 맞춰 바뀌며, SystemVerilog 안의 모듈 이름은 `eulsukdo_example_top` 그대로입니다. TOP 끝에는 다음 자리가 있습니다. 만든 EX 모듈의 인스턴스를 가운데 넣고, 그 소스 파일은 `RTL/ex_rtl/`에 추가하면 됩니다.
+ZIP 이름·최상위 디렉토리·TOP 파일 이름은 프로젝트명에 맞춰 바뀌며, SystemVerilog 안의 모듈 이름은 `eulsukdo_example_top` 그대로입니다. TOP 끝에는 다음 자리가 있습니다. 만든 EX 모듈의 인스턴스를 가운데 넣고, 그 소스 파일은 `RTL/ex_rtl/`에 추가하면 됩니다.
 
 ```systemverilog
 // == EX Area START ==
@@ -88,4 +91,4 @@ ZIP에는 **스케줄러와 디코더 소스**가 들어갑니다. `ex_rtl/`은 
 
 ## 5. 설정 저장하고 다시 열기
 
-상단 `Export`는 프로젝트명, 구조 값, ISA 파라미터, 포맷과 명령 목록을 `eulsukdo_cad_config.json`으로 저장합니다. 다시 작업할 때 `Import`에서 이 파일을 고르면 설정을 복원합니다. 예전에 저장한 JSON에 프로젝트명이 없으면 기본값 `my_project`를 씁니다. 같은 JSON을 [비주얼라이저](../sim_visualizer/USER_GUIDE.md)의 `Gen 구조 JSON 업로드`에도 넣을 수 있습니다. JSON은 구조 수치를 보여 주기 위한 것이고, 비주얼라이저의 실제 신호값은 VCD에서 읽습니다.
+상단 `Export`는 프로젝트명, 구조 값, ISA 파라미터, 포맷과 명령 목록을 `eulsukdo_cad_config.json`으로 따로 저장합니다. `Download Project`의 ZIP에도 **같은 설정 JSON**이 프로젝트 디렉토리 바로 아래에 들어갑니다. 다시 작업할 때 `Import`에서 이 파일을 고르면 설정을 복원합니다. 예전에 저장한 JSON에 프로젝트명이 없으면 기본값 `my_project`를 씁니다. 같은 JSON을 [비주얼라이저](../sim_visualizer/USER_GUIDE.md)의 `Gen 구조 JSON 업로드`에도 넣을 수 있습니다. JSON은 구조 수치를 보여 주기 위한 것이고, 비주얼라이저의 실제 신호값은 VCD에서 읽습니다.

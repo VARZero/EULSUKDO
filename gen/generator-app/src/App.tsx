@@ -234,17 +234,17 @@ function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Serializes config, decoder, formats and instructions to eulsukdo_cad_config.json
+  const settingsJson = JSON.stringify({
+    projectName,
+    scheduler: config,
+    decoder: decoderConfig,
+    formats: formatsList,
+    instructions
+  }, null, 2);
+
+  // The standalone export and project ZIP contain the same importable settings.
   const handleExportJSON = () => {
-    const fullConfig = {
-      projectName,
-      scheduler: config,
-      decoder: decoderConfig,
-      formats: formatsList,
-      instructions: instructions
-    };
-    const dataStr = JSON.stringify(fullConfig, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
+    const blob = new Blob([settingsJson], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -296,7 +296,7 @@ function App() {
   const handleDownloadProject = () => {
     if (downloadError) return;
     const decoderCode = generateDecoderRTL(decoderConfig, formatsList, instructions, config.coresList);
-    downloadSourceBundle(generatedCode, decoderCode, decoderConfig.isaName, projectName);
+    downloadSourceBundle(generatedCode, decoderCode, decoderConfig.isaName, projectName, settingsJson);
   };
 
   return (

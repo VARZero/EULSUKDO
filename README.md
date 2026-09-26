@@ -1,7 +1,5 @@
 # 을숙도 아키텍쳐 프로젝트 - EULSUKDO Archtecture
 
-![을숙도임](IMG_1057.jpeg) ~헤헤을숙도당~
-
 **슈퍼스칼라와 비순차 실행 처리를 위한 동적 스케줄링 구현체와**  
 **을숙도 아키텍쳐를 확장하고 여러 커스텀 EX를 적용할 수 있는 생성기를 포함한 프로젝트**입니다.
   
@@ -100,3 +98,6 @@ structure_src/ : 검증용 소스코드입니다.
 - ```structure_src/``` 디렉토리 내부의 코드는 직접 모두 작성하였습니다.
 
 현재 ```gen/```은 기존 Gen2의 모듈 인스턴스 구조를 바탕으로 스케줄러 RTL을 완성하고, 생성기와 VCD 비주얼라이저를 현재 인터페이스에 맞춘 작업본입니다. 초기 ```gen/```과 생성기 UI는 Google Gemini/Antigravity의 도움을 받아 작성됐고, 이후 Gen2 RTL 기반 재구성과 도구 연동은 Codex로 진행했습니다. 구조 변경과 검증 범위는 [gen/VERIFICATION.md](gen/VERIFICATION.md), 웹 도구 사용법은 [gen/WEB_APPS.md](gen/WEB_APPS.md)에 기록했습니다.
+
+### 마지막으로 을숙도문화회관이나 보고 가셈요
+![을숙도임](IMG_1057.jpeg) ~헤헤을숙도당~

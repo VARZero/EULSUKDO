@@ -1,6 +1,7 @@
 # 을숙도 생성기 사용설명서
 
-이 앱에서는 스케줄러의 구조 값과 ISA 명령 정의를 정할 수 있습니다. 화면에서 보이는 코드를 복사할 수도 있고, **`Download Project`를 누르면 지금 설정으로 만든 top·디코더와 RTL 모듈 전체를 ZIP 하나로 받을 수 있습니다.** 공개 앱은 [여기](https://varzero.github.io/EULSUKDO/)에서 바로 열 수 있습니다.
+이 앱에서는 스케줄러의 구조 값과 ISA 명령 정의를 정할 수 있습니다. 화면에서 보이는 코드를 복사할 수도 있고, **`Download Project`를 누르면 지금 설정으로 만든 top·디코더와 RTL 모듈 전체를 ZIP 하나로 받을 수 있습니다.**  
+웹 앱이므로 [여기](https://varzero.github.io/EULSUKDO/)를 웹브라우저로 들어가시면 됩니다.
 
 ## 1. 앱 열기
 
@@ -47,7 +48,7 @@ PRM의 갱신 폭·버퍼·반환 폭과 flow 창 수는 현재 화면 입력에
 
 처음 들어 있는 ADD/SUB/LW는 **예제 명령 3개**입니다. 전체 RV32I 구현이 아닙니다. 4 Decode·5 Issue 예제를 쓰려면 상단 `Import`에서 `examples/rv32i_4decode_5issue.json`을 고릅니다. 이 파일에는 Branch 1·ALU 3·Memory 1 경로와 RV32I 명령 38개가 들어 있습니다. `FENCE`는 포함하며 `ECALL`, `EBREAK`, `FENCE.I`는 포함하지 않습니다. uop 번호는 실제로 연결할 EX와 맞춰 정해야 합니다.
 
-3 Decode·5 Issue 예제는 `examples/rv32i_3decode_5issue_64p64ist.json`입니다. 물리 레지스터와 IST 엔트리가 각각 64개이고, Branch 1·ALU 3·Memory 1 경로에 RV32I 기본 명령 40개를 배치했습니다. `ECALL`·`EBREAK`도 디코드하지만, 실제 trap 처리는 EX 쪽에 구현해야 합니다. `FENCE.I`는 별도 Zifencei 확장이므로 이 예제에는 없습니다. 파일을 내려받아 상단 `Import`에서 선택하면 됩니다.
+3 Decode·5 Issue 예제는 [여기](./examples/rv32i_3decode_5issue_64p64ist.json)있습니다. 물리 레지스터와 IST 엔트리가 각각 64개이고, Branch 1·ALU 3·Memory 1 경로에 RV32I 기본 명령 40개를 배치했습니다. `ECALL`·`EBREAK`도 디코드하지만, 실제 trap 처리는 EX 쪽에 구현해야 합니다. `FENCE.I`는 별도 Zifencei 확장이므로 이 예제에는 없습니다. 파일을 내려받아 상단 `Import`에서 선택하면 됩니다.
 
 예제 JSON의 흩어진 즉시값은 다음처럼 입력되어 있습니다. `Sign extend`가 켜진 포맷은 결과의 가장 높은 매핑 비트를 부호로 확장합니다.
 

@@ -1,0 +1,1153 @@
+{
+  "projectName": "eulsukdo-rv32i-3d5iss-64p64ist",
+  "scheduler": {
+    "decodeWidth": 3,
+    "phyRegs": 64,
+    "robEntries": 64,
+    "coresList": [
+      {
+        "id": "1",
+        "name": "Branch",
+        "count": 1,
+        "stroke": "#ff5500"
+      },
+      {
+        "id": "2",
+        "name": "ALU",
+        "count": 3,
+        "stroke": "#00ccff"
+      },
+      {
+        "id": "3",
+        "name": "Memory",
+        "count": 1,
+        "stroke": "#ffcc00"
+      }
+    ],
+    "prmUpdate": 3,
+    "prmBuffer": 4,
+    "unallocatePhyreg": 4,
+    "flowWindows": 8
+  },
+  "decoder": {
+    "instBitWidth": 32,
+    "instRegs": 32,
+    "instOperands": 2,
+    "instImm": 32,
+    "microopBitWidth": 5,
+    "isaName": "rv32i"
+  },
+  "formats": [
+    {
+      "id": "fmt-R",
+      "name": "R_type",
+      "fields": [
+        {
+          "id": "f-opcode-6-0",
+          "name": "opcode",
+          "msb": 6,
+          "lsb": 0,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rd-11-7",
+          "name": "rd",
+          "msb": 11,
+          "lsb": 7,
+          "role": "rd"
+        },
+        {
+          "id": "f-funct3-14-12",
+          "name": "funct3",
+          "msb": 14,
+          "lsb": 12,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rs1-19-15",
+          "name": "rs1",
+          "msb": 19,
+          "lsb": 15,
+          "role": "rs1"
+        },
+        {
+          "id": "f-rs2-24-20",
+          "name": "rs2",
+          "msb": 24,
+          "lsb": 20,
+          "role": "rs2"
+        },
+        {
+          "id": "f-funct7-31-25",
+          "name": "funct7",
+          "msb": 31,
+          "lsb": 25,
+          "role": "Condition"
+        }
+      ]
+    },
+    {
+      "id": "fmt-I",
+      "name": "I_type",
+      "fields": [
+        {
+          "id": "f-opcode-6-0",
+          "name": "opcode",
+          "msb": 6,
+          "lsb": 0,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rd-11-7",
+          "name": "rd",
+          "msb": 11,
+          "lsb": 7,
+          "role": "rd"
+        },
+        {
+          "id": "f-funct3-14-12",
+          "name": "funct3",
+          "msb": 14,
+          "lsb": 12,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rs1-19-15",
+          "name": "rs1",
+          "msb": 19,
+          "lsb": 15,
+          "role": "rs1"
+        },
+        {
+          "id": "f-imm-31-20",
+          "name": "imm",
+          "msb": 31,
+          "lsb": 20,
+          "role": "imm"
+        }
+      ]
+    },
+    {
+      "id": "fmt-ISH",
+      "name": "ISH_type",
+      "fields": [
+        {
+          "id": "f-opcode-6-0",
+          "name": "opcode",
+          "msb": 6,
+          "lsb": 0,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rd-11-7",
+          "name": "rd",
+          "msb": 11,
+          "lsb": 7,
+          "role": "rd"
+        },
+        {
+          "id": "f-funct3-14-12",
+          "name": "funct3",
+          "msb": 14,
+          "lsb": 12,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rs1-19-15",
+          "name": "rs1",
+          "msb": 19,
+          "lsb": 15,
+          "role": "rs1"
+        },
+        {
+          "id": "f-shamt-24-20",
+          "name": "shamt",
+          "msb": 24,
+          "lsb": 20,
+          "role": "None"
+        },
+        {
+          "id": "f-funct7-31-25",
+          "name": "funct7",
+          "msb": 31,
+          "lsb": 25,
+          "role": "Condition"
+        }
+      ],
+      "immediateParts": [
+        {
+          "id": "imm-ISH-0",
+          "sourceMsb": 24,
+          "sourceLsb": 20,
+          "targetLsb": 0
+        }
+      ],
+      "signExtendImmediate": false
+    },
+    {
+      "id": "fmt-S",
+      "name": "S_type",
+      "fields": [
+        {
+          "id": "f-opcode-6-0",
+          "name": "opcode",
+          "msb": 6,
+          "lsb": 0,
+          "role": "Condition"
+        },
+        {
+          "id": "f-imm4_0-11-7",
+          "name": "imm4_0",
+          "msb": 11,
+          "lsb": 7,
+          "role": "None"
+        },
+        {
+          "id": "f-funct3-14-12",
+          "name": "funct3",
+          "msb": 14,
+          "lsb": 12,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rs1-19-15",
+          "name": "rs1",
+          "msb": 19,
+          "lsb": 15,
+          "role": "rs1"
+        },
+        {
+          "id": "f-rs2-24-20",
+          "name": "rs2",
+          "msb": 24,
+          "lsb": 20,
+          "role": "rs2"
+        },
+        {
+          "id": "f-imm11_5-31-25",
+          "name": "imm11_5",
+          "msb": 31,
+          "lsb": 25,
+          "role": "None"
+        }
+      ],
+      "immediateParts": [
+        {
+          "id": "imm-S-0",
+          "sourceMsb": 31,
+          "sourceLsb": 25,
+          "targetLsb": 5
+        },
+        {
+          "id": "imm-S-1",
+          "sourceMsb": 11,
+          "sourceLsb": 7,
+          "targetLsb": 0
+        }
+      ],
+      "signExtendImmediate": true
+    },
+    {
+      "id": "fmt-B",
+      "name": "B_type",
+      "fields": [
+        {
+          "id": "f-opcode-6-0",
+          "name": "opcode",
+          "msb": 6,
+          "lsb": 0,
+          "role": "Condition"
+        },
+        {
+          "id": "f-imm11-7-7",
+          "name": "imm11",
+          "msb": 7,
+          "lsb": 7,
+          "role": "None"
+        },
+        {
+          "id": "f-imm4_1-11-8",
+          "name": "imm4_1",
+          "msb": 11,
+          "lsb": 8,
+          "role": "None"
+        },
+        {
+          "id": "f-funct3-14-12",
+          "name": "funct3",
+          "msb": 14,
+          "lsb": 12,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rs1-19-15",
+          "name": "rs1",
+          "msb": 19,
+          "lsb": 15,
+          "role": "rs1"
+        },
+        {
+          "id": "f-rs2-24-20",
+          "name": "rs2",
+          "msb": 24,
+          "lsb": 20,
+          "role": "rs2"
+        },
+        {
+          "id": "f-imm10_5-30-25",
+          "name": "imm10_5",
+          "msb": 30,
+          "lsb": 25,
+          "role": "None"
+        },
+        {
+          "id": "f-imm12-31-31",
+          "name": "imm12",
+          "msb": 31,
+          "lsb": 31,
+          "role": "None"
+        }
+      ],
+      "immediateParts": [
+        {
+          "id": "imm-B-0",
+          "sourceMsb": 31,
+          "sourceLsb": 31,
+          "targetLsb": 12
+        },
+        {
+          "id": "imm-B-1",
+          "sourceMsb": 7,
+          "sourceLsb": 7,
+          "targetLsb": 11
+        },
+        {
+          "id": "imm-B-2",
+          "sourceMsb": 30,
+          "sourceLsb": 25,
+          "targetLsb": 5
+        },
+        {
+          "id": "imm-B-3",
+          "sourceMsb": 11,
+          "sourceLsb": 8,
+          "targetLsb": 1
+        }
+      ],
+      "signExtendImmediate": true
+    },
+    {
+      "id": "fmt-U",
+      "name": "U_type",
+      "fields": [
+        {
+          "id": "f-opcode-6-0",
+          "name": "opcode",
+          "msb": 6,
+          "lsb": 0,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rd-11-7",
+          "name": "rd",
+          "msb": 11,
+          "lsb": 7,
+          "role": "rd"
+        },
+        {
+          "id": "f-imm31_12-31-12",
+          "name": "imm31_12",
+          "msb": 31,
+          "lsb": 12,
+          "role": "None"
+        }
+      ],
+      "immediateParts": [
+        {
+          "id": "imm-U-0",
+          "sourceMsb": 31,
+          "sourceLsb": 12,
+          "targetLsb": 12
+        }
+      ],
+      "signExtendImmediate": false
+    },
+    {
+      "id": "fmt-J",
+      "name": "J_type",
+      "fields": [
+        {
+          "id": "f-opcode-6-0",
+          "name": "opcode",
+          "msb": 6,
+          "lsb": 0,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rd-11-7",
+          "name": "rd",
+          "msb": 11,
+          "lsb": 7,
+          "role": "rd"
+        },
+        {
+          "id": "f-imm19_12-19-12",
+          "name": "imm19_12",
+          "msb": 19,
+          "lsb": 12,
+          "role": "None"
+        },
+        {
+          "id": "f-imm11-20-20",
+          "name": "imm11",
+          "msb": 20,
+          "lsb": 20,
+          "role": "None"
+        },
+        {
+          "id": "f-imm10_1-30-21",
+          "name": "imm10_1",
+          "msb": 30,
+          "lsb": 21,
+          "role": "None"
+        },
+        {
+          "id": "f-imm20-31-31",
+          "name": "imm20",
+          "msb": 31,
+          "lsb": 31,
+          "role": "None"
+        }
+      ],
+      "immediateParts": [
+        {
+          "id": "imm-J-0",
+          "sourceMsb": 31,
+          "sourceLsb": 31,
+          "targetLsb": 20
+        },
+        {
+          "id": "imm-J-1",
+          "sourceMsb": 19,
+          "sourceLsb": 12,
+          "targetLsb": 12
+        },
+        {
+          "id": "imm-J-2",
+          "sourceMsb": 20,
+          "sourceLsb": 20,
+          "targetLsb": 11
+        },
+        {
+          "id": "imm-J-3",
+          "sourceMsb": 30,
+          "sourceLsb": 21,
+          "targetLsb": 1
+        }
+      ],
+      "signExtendImmediate": true
+    },
+    {
+      "id": "fmt-FENCE",
+      "name": "FENCE_type",
+      "fields": [
+        {
+          "id": "f-opcode-6-0",
+          "name": "opcode",
+          "msb": 6,
+          "lsb": 0,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rd_zero-11-7",
+          "name": "rd_zero",
+          "msb": 11,
+          "lsb": 7,
+          "role": "Condition"
+        },
+        {
+          "id": "f-funct3-14-12",
+          "name": "funct3",
+          "msb": 14,
+          "lsb": 12,
+          "role": "Condition"
+        },
+        {
+          "id": "f-rs1_zero-19-15",
+          "name": "rs1_zero",
+          "msb": 19,
+          "lsb": 15,
+          "role": "Condition"
+        },
+        {
+          "id": "f-fm_pred_succ-31-20",
+          "name": "fm_pred_succ",
+          "msb": 31,
+          "lsb": 20,
+          "role": "None"
+        }
+      ]
+    },
+    {
+      "id": "fmt-SYSTEM",
+      "name": "SYSTEM_type",
+      "fields": [
+        {
+          "id": "f-sys-opcode",
+          "name": "opcode",
+          "msb": 6,
+          "lsb": 0,
+          "role": "Condition"
+        },
+        {
+          "id": "f-sys-rd",
+          "name": "rd_zero",
+          "msb": 11,
+          "lsb": 7,
+          "role": "Condition"
+        },
+        {
+          "id": "f-sys-funct3",
+          "name": "funct3",
+          "msb": 14,
+          "lsb": 12,
+          "role": "Condition"
+        },
+        {
+          "id": "f-sys-rs1",
+          "name": "rs1_zero",
+          "msb": 19,
+          "lsb": 15,
+          "role": "Condition"
+        },
+        {
+          "id": "f-sys-funct12",
+          "name": "funct12",
+          "msb": 31,
+          "lsb": 20,
+          "role": "Condition"
+        }
+      ]
+    }
+  ],
+  "instructions": [
+    {
+      "id": "inst-add",
+      "name": "ADD",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b000",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 0,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-sub",
+      "name": "SUB",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b000",
+        "funct7": "7'b0100000"
+      },
+      "exPathId": "2",
+      "microop": 1,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-sll",
+      "name": "SLL",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b001",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 2,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-slt",
+      "name": "SLT",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b010",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 3,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-sltu",
+      "name": "SLTU",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b011",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 4,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-xor",
+      "name": "XOR",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b100",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 5,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-srl",
+      "name": "SRL",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b101",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 6,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-sra",
+      "name": "SRA",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b101",
+        "funct7": "7'b0100000"
+      },
+      "exPathId": "2",
+      "microop": 7,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-or",
+      "name": "OR",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b110",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 8,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-and",
+      "name": "AND",
+      "formatId": "fmt-R",
+      "conditions": {
+        "opcode": "7'b0110011",
+        "funct3": "3'b111",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 9,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-addi",
+      "name": "ADDI",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0010011",
+        "funct3": "3'b000"
+      },
+      "exPathId": "2",
+      "microop": 10,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-slli",
+      "name": "SLLI",
+      "formatId": "fmt-ISH",
+      "conditions": {
+        "opcode": "7'b0010011",
+        "funct3": "3'b001",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 11,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-slti",
+      "name": "SLTI",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0010011",
+        "funct3": "3'b010"
+      },
+      "exPathId": "2",
+      "microop": 12,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-sltiu",
+      "name": "SLTIU",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0010011",
+        "funct3": "3'b011"
+      },
+      "exPathId": "2",
+      "microop": 13,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-xori",
+      "name": "XORI",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0010011",
+        "funct3": "3'b100"
+      },
+      "exPathId": "2",
+      "microop": 14,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-srli",
+      "name": "SRLI",
+      "formatId": "fmt-ISH",
+      "conditions": {
+        "opcode": "7'b0010011",
+        "funct3": "3'b101",
+        "funct7": "7'b0000000"
+      },
+      "exPathId": "2",
+      "microop": 15,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-srai",
+      "name": "SRAI",
+      "formatId": "fmt-ISH",
+      "conditions": {
+        "opcode": "7'b0010011",
+        "funct3": "3'b101",
+        "funct7": "7'b0100000"
+      },
+      "exPathId": "2",
+      "microop": 16,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-ori",
+      "name": "ORI",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0010011",
+        "funct3": "3'b110"
+      },
+      "exPathId": "2",
+      "microop": 17,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-andi",
+      "name": "ANDI",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0010011",
+        "funct3": "3'b111"
+      },
+      "exPathId": "2",
+      "microop": 18,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-lui",
+      "name": "LUI",
+      "formatId": "fmt-U",
+      "conditions": {
+        "opcode": "7'b0110111"
+      },
+      "exPathId": "2",
+      "microop": 19,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-auipc",
+      "name": "AUIPC",
+      "formatId": "fmt-U",
+      "conditions": {
+        "opcode": "7'b0010111"
+      },
+      "exPathId": "2",
+      "microop": 20,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-beq",
+      "name": "BEQ",
+      "formatId": "fmt-B",
+      "conditions": {
+        "opcode": "7'b1100011",
+        "funct3": "3'b000"
+      },
+      "exPathId": "1",
+      "microop": 0,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": true
+    },
+    {
+      "id": "inst-bne",
+      "name": "BNE",
+      "formatId": "fmt-B",
+      "conditions": {
+        "opcode": "7'b1100011",
+        "funct3": "3'b001"
+      },
+      "exPathId": "1",
+      "microop": 1,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": true
+    },
+    {
+      "id": "inst-blt",
+      "name": "BLT",
+      "formatId": "fmt-B",
+      "conditions": {
+        "opcode": "7'b1100011",
+        "funct3": "3'b100"
+      },
+      "exPathId": "1",
+      "microop": 2,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": true
+    },
+    {
+      "id": "inst-bge",
+      "name": "BGE",
+      "formatId": "fmt-B",
+      "conditions": {
+        "opcode": "7'b1100011",
+        "funct3": "3'b101"
+      },
+      "exPathId": "1",
+      "microop": 3,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": true
+    },
+    {
+      "id": "inst-bltu",
+      "name": "BLTU",
+      "formatId": "fmt-B",
+      "conditions": {
+        "opcode": "7'b1100011",
+        "funct3": "3'b110"
+      },
+      "exPathId": "1",
+      "microop": 4,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": true
+    },
+    {
+      "id": "inst-bgeu",
+      "name": "BGEU",
+      "formatId": "fmt-B",
+      "conditions": {
+        "opcode": "7'b1100011",
+        "funct3": "3'b111"
+      },
+      "exPathId": "1",
+      "microop": 5,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": true
+    },
+    {
+      "id": "inst-jal",
+      "name": "JAL",
+      "formatId": "fmt-J",
+      "conditions": {
+        "opcode": "7'b1101111"
+      },
+      "exPathId": "1",
+      "microop": 6,
+      "newregAlloc": true,
+      "jump": true,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-jalr",
+      "name": "JALR",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b1100111",
+        "funct3": "3'b000"
+      },
+      "exPathId": "1",
+      "microop": 7,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": true,
+      "branch": false
+    },
+    {
+      "id": "inst-lb",
+      "name": "LB",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0000011",
+        "funct3": "3'b000"
+      },
+      "exPathId": "3",
+      "microop": 0,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-lh",
+      "name": "LH",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0000011",
+        "funct3": "3'b001"
+      },
+      "exPathId": "3",
+      "microop": 1,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-lw",
+      "name": "LW",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0000011",
+        "funct3": "3'b010"
+      },
+      "exPathId": "3",
+      "microop": 2,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-lbu",
+      "name": "LBU",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0000011",
+        "funct3": "3'b100"
+      },
+      "exPathId": "3",
+      "microop": 3,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-lhu",
+      "name": "LHU",
+      "formatId": "fmt-I",
+      "conditions": {
+        "opcode": "7'b0000011",
+        "funct3": "3'b101"
+      },
+      "exPathId": "3",
+      "microop": 4,
+      "newregAlloc": true,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-sb",
+      "name": "SB",
+      "formatId": "fmt-S",
+      "conditions": {
+        "opcode": "7'b0100011",
+        "funct3": "3'b000"
+      },
+      "exPathId": "3",
+      "microop": 5,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-sh",
+      "name": "SH",
+      "formatId": "fmt-S",
+      "conditions": {
+        "opcode": "7'b0100011",
+        "funct3": "3'b001"
+      },
+      "exPathId": "3",
+      "microop": 6,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-sw",
+      "name": "SW",
+      "formatId": "fmt-S",
+      "conditions": {
+        "opcode": "7'b0100011",
+        "funct3": "3'b010"
+      },
+      "exPathId": "3",
+      "microop": 7,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-fence",
+      "name": "FENCE",
+      "formatId": "fmt-FENCE",
+      "conditions": {
+        "opcode": "7'b0001111",
+        "funct3": "3'b000",
+        "rd_zero": "5'b00000",
+        "rs1_zero": "5'b00000"
+      },
+      "exPathId": "1",
+      "microop": 8,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": true
+    },
+    {
+      "id": "inst-ecall",
+      "name": "ECALL",
+      "formatId": "fmt-SYSTEM",
+      "conditions": {
+        "opcode": "7'b1110011",
+        "rd_zero": "5'b00000",
+        "funct3": "3'b000",
+        "rs1_zero": "5'b00000",
+        "funct12": "12'b000000000000"
+      },
+      "exPathId": "1",
+      "microop": 9,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    },
+    {
+      "id": "inst-ebreak",
+      "name": "EBREAK",
+      "formatId": "fmt-SYSTEM",
+      "conditions": {
+        "opcode": "7'b1110011",
+        "rd_zero": "5'b00000",
+        "funct3": "3'b000",
+        "rs1_zero": "5'b00000",
+        "funct12": "12'b000000000001"
+      },
+      "exPathId": "1",
+      "microop": 10,
+      "newregAlloc": false,
+      "jump": false,
+      "jumpReg": false,
+      "branch": false
+    }
+  ]
+}

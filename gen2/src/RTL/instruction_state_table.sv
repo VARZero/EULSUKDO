@@ -32,7 +32,7 @@ module instruction_state_table #(
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
     localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
     localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
-    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = (STRUCT_FLOW_WINDOWS > 1)? $clog2(STRUCT_FLOW_WINDOWS) : 1,
     localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
     localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH,
@@ -77,6 +77,7 @@ module instruction_state_table #(
     
     // Executable (All phyreg in instruction are ready) Internal Instruction Output (RS)
     output logic [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               o_rs_ready_inst_valid,
+    input  logic [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               i_rs_ready_inst_get,
     output logic [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)*_BITWIDTH_EX_INST_WIDTH)-1:0]     o_rs_ready_inst_data,
 
     // Wait Physical Registers Output (PRM)
@@ -117,13 +118,10 @@ module instruction_state_table #(
     logic [(_BITWIDTH_PHY_RS_INST*STRUCT_DECODE_NEW_INST)-1:0] rs_phyregs;
     logic [STRUCT_DECODE_NEW_INST-1:0]                         ready_nel_update        [0:IS_INST_OPERANDS-1];
 
-    logic [_BITWIDTH_READY_PRM-1:0]                            prm_update_map;
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0]                       prm_update_phyreg       [0:STRUCT_PRM_ENTRY_UPDATE-1];
     logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0]            prm_update_istnum       [0:STRUCT_PRM_ENTRY_UPDATE-1];
     logic [(_BITWIDTH_STRUCT_INST_STATE_ENTRIES*STRUCT_PRM_ENTRY_UPDATE)-1:0]
                                                                prm_update_istnum_all;
-    logic [(_BITWIDTH_STRUCT_PHYREGS*STRUCT_PRM_ENTRY_UPDATE)-1:0]
-                                                               prm_update_phyreg_all;
 
     logic [(_BITWIDTH_PHY_RS_INST*STRUCT_PRM_ENTRY_UPDATE)-1:0] 
                                                                check_phyreg_all;
@@ -134,12 +132,65 @@ module instruction_state_table #(
     logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        ready_prm_rs;
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0]                       ready_check_phyreg_target;
 
-    integer idx_internal_inst, idx_rs;
+    logic                                                     nel_accept_enable;
+    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        prm_update_write;
+    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        unallocate_ready;
+    logic [STRUCT_INST_STATE_ENTRIES-1:0]                     active_entries, active_entries_next;
+    logic [STRUCT_INST_STATE_ENTRIES-1:0]                     pending_entries, pending_entries_next;
+    logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0]           issue_start, issue_start_next;
+    logic [(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_STRUCT_INST_STATE_ENTRIES)-1:0]
+                                                               issue_istnum_all;
+
+    integer idx_internal_inst, idx_rs, idx_update, idx_entry;
+    integer issue_entry, issue_channel;
+
+    // Admission depends only on allocator offers and RS capacity. Keeping
+    // this wiring outside the NEL-consuming block also makes that independence
+    // visible to simulators when NEL gates its Valid with our Get.
+    assign nel_accept_enable = reset_n &&
+        (&allocate_valid) && (&i_rs_ready_inst_get);
+    assign o_nel_new_inst_get = {STRUCT_DECODE_NEW_INST{nel_accept_enable}};
+
+    // PRM read addresses are pure input wiring, independent of the ready checker.
+    genvar prm_idx;
+    generate
+        for (prm_idx = 0; prm_idx < STRUCT_PRM_ENTRY_UPDATE; prm_idx = prm_idx+1) begin : G_PRM_INPUT
+            assign prm_update_phyreg[prm_idx] =
+                i_prm_ready_phyreg_data[(_BITWIDTH_READY_PRM*prm_idx) +: _BITWIDTH_STRUCT_PHYREGS];
+            assign prm_update_istnum[prm_idx] =
+                i_prm_ready_phyreg_data[(_BITWIDTH_READY_PRM*prm_idx)+_BITWIDTH_STRUCT_PHYREGS +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
+            assign prm_update_istnum_all[(_BITWIDTH_STRUCT_INST_STATE_ENTRIES*prm_idx) +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
+                prm_update_istnum[prm_idx];
+        end
+    endgenerate
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            active_entries  <= '0;
+            pending_entries <= '0;
+            issue_start     <= '0;
+        end
+        else begin
+            active_entries  <= active_entries_next;
+            pending_entries <= pending_entries_next;
+            issue_start     <= issue_start_next;
+        end
+    end
 
     always_comb begin
-        allocate_is_entries = 0; ready_is_entries = 0; ready_prm_rs = 0;
+        allocate_is_entries = '0; ready_is_entries = '0; ready_prm_rs = '0;
+        active_entries_next  = active_entries;
+        pending_entries_next = pending_entries;
+        issue_start_next     = issue_start;
+        issue_istnum_all     = '0;
+        issue_entry          = 0;
+        issue_channel        = 0;
+        prm_update_write     = '0;
+        ready_check_section  = '0;
+        ready_check_phyreg_target = '0;
+
         for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
-            ready_prm_update[idx_rs] = last_ready[idx_rs] & i_prm_ready_phyreg_valid[idx_rs];
+            ready_prm_update[idx_rs] = last_ready[idx_rs];
         end
 
         for (idx_internal_inst = 0; idx_internal_inst < STRUCT_DECODE_NEW_INST; idx_internal_inst = idx_internal_inst+1) begin
@@ -159,9 +210,14 @@ module instruction_state_table #(
 
             // Set Allocate
             allocate_is_entries[idx_internal_inst]     = 
-                ( &target_source_ready[idx_internal_inst] )? 1'b0 : i_nel_new_inst_valid[idx_internal_inst];
+                !( &target_source_ready[idx_internal_inst] ) && i_nel_new_inst_valid[idx_internal_inst] && nel_accept_enable;
             ready_is_entries   [idx_internal_inst]     = 
-                ( &target_source_ready[idx_internal_inst] )? i_nel_new_inst_valid[idx_internal_inst] : 1'b0;
+                ( &target_source_ready[idx_internal_inst] ) && i_nel_new_inst_valid[idx_internal_inst] && nel_accept_enable;
+
+            if (allocate_is_entries[idx_internal_inst]) begin
+                active_entries_next[allocate_alloc_num_list[idx_internal_inst]]  = 1'b1;
+                pending_entries_next[allocate_alloc_num_list[idx_internal_inst]] = 1'b0;
+            end
 
             nel_new_inst_data[(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst) +: _BITWIDTH_EX_INST_WIDTH] = 
                 target_ist_entry[idx_internal_inst];
@@ -183,7 +239,7 @@ module instruction_state_table #(
             // Wait PRM
             for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
                 o_prm_wait_phyreg_valid[(idx_internal_inst*IS_INST_OPERANDS)+idx_rs] 
-                    = ~ready_nel_update[idx_rs][idx_internal_inst] & i_nel_new_inst_valid[idx_internal_inst];
+                    = ~ready_nel_update[idx_rs][idx_internal_inst] & allocate_is_entries[idx_internal_inst];
                 o_prm_wait_phyreg_data[(_BITWIDTH_READY_PRM*( (idx_internal_inst*IS_INST_OPERANDS)+idx_rs )) +: _BITWIDTH_READY_PRM]
                     = {allocate_alloc_num_list[idx_internal_inst], 
                        target_phyreg_source[idx_internal_inst][(_BITWIDTH_STRUCT_PHYREGS*idx_rs) +: _BITWIDTH_STRUCT_PHYREGS]};
@@ -191,41 +247,58 @@ module instruction_state_table #(
         end
 
         for (idx_internal_inst = 0; idx_internal_inst < STRUCT_PRM_ENTRY_UPDATE; idx_internal_inst = idx_internal_inst+1) begin
-            // Split Map [IST NUM, PHYREG]
-            prm_update_map                             =
-                i_prm_ready_phyreg_data[(_BITWIDTH_READY_PRM*idx_internal_inst) +: _BITWIDTH_READY_PRM];
-            prm_update_phyreg[idx_internal_inst]       =
-                prm_update_map[0                             +: _BITWIDTH_STRUCT_PHYREGS];
-            prm_update_istnum[idx_internal_inst]       =
-                prm_update_map[_BITWIDTH_STRUCT_PHYREGS      +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
-        end
-        
-        for (idx_internal_inst = 0; idx_internal_inst < STRUCT_PRM_ENTRY_UPDATE; idx_internal_inst = idx_internal_inst+1) begin
-            // Gather PRM Update ISTNUMs
-            prm_update_istnum_all[(_BITWIDTH_STRUCT_INST_STATE_ENTRIES*idx_internal_inst) +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES]
-                = prm_update_istnum[idx_internal_inst];
-            // Gather PRM Update PHYREGs
-            prm_update_phyreg_all[(_BITWIDTH_STRUCT_PHYREGS*idx_internal_inst) +: _BITWIDTH_STRUCT_PHYREGS]
-                = prm_update_phyreg[idx_internal_inst];
-        end
+            // Only the first valid channel for an active IST entry writes it.
+            // Merge every notification for that entry before the single write.
+            if (reset_n && i_prm_ready_phyreg_valid[idx_internal_inst] &&
+                (int'(prm_update_istnum[idx_internal_inst]) < STRUCT_INST_STATE_ENTRIES)) begin
+                prm_update_write[idx_internal_inst] = active_entries[prm_update_istnum[idx_internal_inst]];
+            end
+            for (idx_update = 0; idx_update < idx_internal_inst; idx_update = idx_update+1) begin
+                if (i_prm_ready_phyreg_valid[idx_update] &&
+                    (prm_update_istnum[idx_update] == prm_update_istnum[idx_internal_inst])) begin
+                    prm_update_write[idx_internal_inst] = 1'b0;
+                end
+            end
 
-        for (idx_internal_inst = 0; idx_internal_inst < STRUCT_PRM_ENTRY_UPDATE; idx_internal_inst = idx_internal_inst+1) begin
-            // Ready Check
             for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
                 ready_check_section[idx_rs] = last_ready[idx_rs][idx_internal_inst];
                 ready_check_phyreg_target = 
                     check_phyreg_all[(_BITWIDTH_STRUCT_PHYREGS*((IS_INST_OPERANDS*idx_internal_inst)+idx_rs)) +: _BITWIDTH_STRUCT_PHYREGS];
-                if ((!last_ready[idx_rs][idx_internal_inst]) && (ready_check_phyreg_target == prm_update_phyreg[idx_internal_inst])) begin
-                    ready_prm_update[idx_rs][idx_internal_inst] = i_prm_ready_phyreg_valid[idx_internal_inst];
-                    ready_check_section[idx_rs] = i_prm_ready_phyreg_valid[idx_internal_inst];
+                for (idx_update = 0; idx_update < STRUCT_PRM_ENTRY_UPDATE; idx_update = idx_update+1) begin
+                    if (i_prm_ready_phyreg_valid[idx_update] &&
+                        (prm_update_istnum[idx_update] == prm_update_istnum[idx_internal_inst]) &&
+                        (ready_check_phyreg_target == prm_update_phyreg[idx_update])) begin
+                        ready_check_section[idx_rs] = 1'b1;
+                    end
                 end
+                ready_prm_update[idx_rs][idx_internal_inst] = ready_check_section[idx_rs];
             end
 
-            if (i_prm_ready_phyreg_valid[idx_internal_inst] && (&ready_check_section)) begin
-                for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
-                    ready_prm_update[idx_rs][idx_internal_inst] = 0;
+            // PRM sends pulses without Get. Retain completions even if RS stalls.
+            if (prm_update_write[idx_internal_inst] && (&ready_check_section)) begin
+                pending_entries_next[prm_update_istnum[idx_internal_inst]] = 1'b1;
+            end
+        end
+
+        // Registered pending entries issue from the following cycle. Round-robin
+        // selection prevents repeated low-index reuse from starving older entries.
+        // RS transfer and allocator return happen together. Hold the pending
+        // entry if either destination is unable to accept it.
+        // Valid is a transfer pulse, as in NEL.
+        for (idx_entry = 0; idx_entry < STRUCT_INST_STATE_ENTRIES; idx_entry = idx_entry+1) begin
+            issue_entry = int'(issue_start) + idx_entry;
+            if (issue_entry >= STRUCT_INST_STATE_ENTRIES) issue_entry = issue_entry - STRUCT_INST_STATE_ENTRIES;
+            if (pending_entries[issue_entry] && (issue_channel < STRUCT_PRM_ENTRY_UPDATE)) begin
+                issue_istnum_all[(issue_channel*_BITWIDTH_STRUCT_INST_STATE_ENTRIES) +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
+                    _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(issue_entry);
+                ready_prm_rs[issue_channel] = reset_n && i_rs_ready_inst_get[issue_channel] && unallocate_ready[issue_channel];
+                if (ready_prm_rs[issue_channel]) begin
+                    active_entries_next[issue_entry]  = 1'b0;
+                    pending_entries_next[issue_entry] = 1'b0;
+                    issue_start_next = (issue_entry == STRUCT_INST_STATE_ENTRIES-1)? '0 :
+                        _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(issue_entry+1);
                 end
-                ready_prm_rs[idx_internal_inst] = 1'b1;
+                issue_channel = issue_channel+1;
             end
         end
 
@@ -241,15 +314,15 @@ module instruction_state_table #(
     ) U_IST_ENTRY_ALLOCATOR (
         .clk                (clk),
         .reset_n            (reset_n),
-        .i_flush            (1'b0), // 지금은 분기가 없어..
+        .i_flush            (1'b0),
         .i_unallocate       (ready_prm_rs),
-        .o_unallocate_ready (),
-        .i_unallocate_data  (prm_update_istnum_all),
+        .o_unallocate_ready (unallocate_ready),
+        .i_unallocate_data  (issue_istnum_all),
         .i_allocate         (allocate_is_entries),
         .o_allocate_valid   (allocate_valid),
         .o_allocate_data    (allocate_alloc_num_out)
     );
-    
+
     regfile #(
         .DATA_WIDTH    (_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS),
         .ENTRIES       (STRUCT_INST_STATE_ENTRIES),
@@ -277,7 +350,7 @@ module instruction_state_table #(
         .clk           (clk),
         .reset_n       (reset_n),
         .i_flush       (1'b0), // 지금은 분기가 없어..
-        .i_read_addr   (prm_update_istnum_all),
+        .i_read_addr   (issue_istnum_all),
         .o_read_data   (o_rs_ready_inst_data[(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_EX_INST_WIDTH)-1:0]),
         .i_write_addr  (allocate_alloc_num_out),
         .i_write_en    (allocate_is_entries),
@@ -301,12 +374,10 @@ module instruction_state_table #(
                 .i_read_addr   (prm_update_istnum_all),
                 .o_read_data   (last_ready[ready_rf_idx]),
                 .i_write_addr  ({prm_update_istnum_all         , allocate_alloc_num_out}),
-                .i_write_en    ({i_prm_ready_phyreg_valid      , allocate_is_entries}),
+                .i_write_en    ({prm_update_write             , allocate_is_entries}),
                 .i_write_data  ({ready_prm_update[ready_rf_idx], ready_nel_update[ready_rf_idx]})
             );
         end
     endgenerate
     
-    assign o_nel_new_inst_get = allocate_valid;
-
 endmodule

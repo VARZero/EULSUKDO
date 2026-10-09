@@ -1,4 +1,65 @@
 # Flow Control Logic(FCL)
+
+## gen2 구현
+
+`gen2/src/RTL/flow_control_logic.sv`는 아래 원형의 FCL/FDU 구성을 사용하되,
+실제 명령 유입 추적, 순서대로 반환하는 제어, 다중 채널 handshake를 추가한 구현이다.
+원형 코드는 `structure_src`에 보존한다. 이 절 이후의 기존 설계 설명과 차이가 있으면
+`gen2`에서는 이 절과 RTL의 포트 정의를 따른다.
+
+- FDU는 `STRUCT_FLOW_WINDOWS`개이며, 각 윈도우에 최대
+  `STRUCT_FLOW_PC_MAX_RANGE`개의 명령을 수락한다. PC 간격은 `IS_INST_PC_STEP`이다.
+- NEL은 Stage 1에서 소비한 IM 응답(`recv_valid`)과 실제 저장한 명령(`recv_keep`)을 구분한다.
+  Stage 1 → Stage 2에서 모든 유효 명령의 `{Flow, PC}`를 한 번씩 보고한다.
+  목적지가 없거나 x0인 명령도 이 보고와 실행 완료 보고에 포함된다.
+- FDU는 PC 위치별 유입/완료 비트맵을 사용한다. 중복 완료 알림은 완료 개수를 늘리지 않는다.
+  윈도우가 닫히고 수락한 명령이 모두 완료돼야 반환 가능 상태가 된다.
+- 윈도우 번호는 원형 순서로 할당하고, 가장 오래된 윈도우부터 반환한다.
+  뒤 윈도우가 먼저 완료돼도 앞 윈도우의 반환을 추월하지 않는다.
+- 윈도우별 반환 번호는 공용 `fifo_multichan`에 보관한다. 반환 권한을 가진 FDU만 pop하며,
+  입력 파이프라인을 포함한 모든 반환 번호가 빠진 뒤에만 윈도우 번호를 재사용한다.
+
+### IM 요청과 분기 처리
+
+한 번에 최대 `STRUCT_DECODE_NEW_INST`개의 PC를 요청한다. 각 요청은
+`valid && get`에서 개별 수락되며, 수락되지 않은 lane의 valid와 `{Flow, PC}`는 유지된다.
+윈도우 끝에 남은 명령 수가 적으면 일부 lane만 유효하다.
+
+현재 구현은 **한 요청 묶음만 진행 중일 수 있으며 분기 예측을 하지 않는다.**
+IM은 수락한 요청마다 응답해야 하고, 응답은 프로그램 순서를 유지해야 한다.
+여러 응답을 한 사이클에 내보낼 때도 낮은 lane부터 프로그램 순서여야 한다.
+응답을 여러 사이클로 나누는 것은 허용한다.
+
+NEL은 첫 점프/분기 명령까지 저장하고, 같은 묶음의 뒤쪽 응답은 Get으로 소비하되 저장하지 않는다.
+FCL의 `o_nel_discard`는 나중에 도착하는 뒤쪽 응답도 버리게 한다.
+모든 요청의 응답을 소비하고 저장한 명령의 rename이 끝난 뒤 다음 묶음을 요청한다.
+직접 점프는 NEL의 목표 PC를 사용하고, 조건 분기와 레지스터 점프는 EX 결과를 기다린다.
+
+### gen2 인터페이스 변경
+
+| 경로 | 데이터 및 의미 |
+|---|---|
+| FCL → IM | lane별 `{Flow, PC}`. Flow 폭은 윈도우 1개 구성에서도 최소 1비트 |
+| NEL → FCL | `new_inst_valid/new_inst_pc`: 모든 명령의 rename 완료 이벤트 |
+| NEL → FCL | `recv_valid/recv_keep/recv_control`: 응답 소비, Stage 1 저장, 제어 명령 감지 |
+| NEL → FCL | `jumpbranch_pc`: 제어 명령 자신의 `{Flow, PC}` |
+| NEL → FCL | `jumpbranch_data`: `{target_pc, branch, jump_reg, jump}` |
+| EX → WBC → FCL | `branch_data`: **`{resolved_next_pc, Flow, instruction_pc}`** |
+| WBC → FCL | `done_pc_data`: 완료한 명령의 `{Flow, PC}` |
+| NEL → FCL | `retired_phyreg_data`: `{old_phyreg, Flow, PC}` |
+| FCL → PRM | 반환할 물리 레지스터 번호. 0번은 반환하지 않음 |
+
+외부 EX는 조건 분기의 taken/not-taken 모두에 대해 실제 다음 PC를 계산하여
+`i_wbc_result_branch_valid/data`로 보고해야 한다. 분기 결과 보고와 별개로
+해당 명령의 일반 `i_wbc_result_valid/data` 완료 보고도 필요하다.
+FCL은 분기 결과의 `{Flow, instruction_pc}`가 기다리는 명령과 일치할 때만 재개한다.
+
+`tb_flow_control_logic.sv`는 순서대로 반환, 부분 요청 수락, 중복 완료, 분기 결과 식별을 검사한다.
+`tb_scheduler_flow.sv`는 실제 NEL/IST/PRM/RS/WBC/FCL을 연결해 뒤쪽 응답 폐기와
+반복적인 RAW 의존성 및 물리 레지스터 재사용을 검사한다.
+
+## 기존 구조 설명 (structure_src)
+
 Flow Control Logic은  
 명령의 흐름을 결정하기 위해 PC의 변화를 제어하고  
 덮어 씌워져 더이상 사용되지 않는 내부 레지스터 번호를 반환하는 모듈입니다.  

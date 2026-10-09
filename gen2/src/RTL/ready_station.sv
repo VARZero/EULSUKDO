@@ -32,7 +32,7 @@ module ready_station #(
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
     localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
     localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
-    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = (STRUCT_FLOW_WINDOWS > 1)? $clog2(STRUCT_FLOW_WINDOWS) : 1,
     localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
     localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH,
@@ -83,7 +83,7 @@ module ready_station #(
     logic [INPUT_CHANNEL-1:0]                           ex_valid        [0:STRUCT_EX_PATH-1];
     logic [_BITWIDTH_STRUCT_EX_PATH-1:0]                compare_ex_path [0:INPUT_CHANNEL-1];
     logic [INPUT_CHANNEL-1:0]                           gather_ex_path  [0:STRUCT_EX_PATH-1];
-    logic [INPUT_CHANNEL-1:0]                           ex_fifos_ready  [0:INPUT_CHANNEL-1];
+    logic [INPUT_CHANNEL-1:0]                           ex_fifos_ready  [0:STRUCT_EX_PATH-1];
     logic [STRUCT_EX_PATH-1:0]                          ex_fifo_ready;
     logic [(INPUT_CHANNEL*_BITWIDTH_EX_INST_WIDTH)-1:0] gather_inst     [0:STRUCT_EX_PATH-1];
     integer                                             ex_split, ex_fifo_ready_idx, input_position;

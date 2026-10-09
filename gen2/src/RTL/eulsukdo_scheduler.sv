@@ -32,7 +32,7 @@ module eulsukdo_scheduler #(
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
     localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
     localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
-    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = (STRUCT_FLOW_WINDOWS > 1)? $clog2(STRUCT_FLOW_WINDOWS) : 1,
     localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
     localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH,
@@ -61,6 +61,7 @@ module eulsukdo_scheduler #(
                                                          + 1 // Jump Register Flag
                                                          + 1 // Branch Flag
                                                          + IS_INST_PC_BITWIDTH, // New Program Counter
+    localparam int _BITWIDTH_STRUCT_BRANCH_RESULT      = IS_INST_PC_BITWIDTH+_BITWIDTH_FLOW_WINDOWS_PC,
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
@@ -97,7 +98,10 @@ module eulsukdo_scheduler #(
 
     // EX Result Receive (EX Out)
     input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                               i_wbc_result_valid,
-    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_EX_RESULT_WIDTH) )-1:0]               i_wbc_result_data
+    input  wire [(STRUCT_EX_OUT_RESULT_SUM *(_BITWIDTH_EX_RESULT_WIDTH) )-1:0]               i_wbc_result_data,
+    // Branch EX must report the resolved next PC and the originating {Flow, PC}.
+    input wire [STRUCT_EX_BRANCH-1:0] i_wbc_result_branch_valid,
+    input wire [STRUCT_EX_BRANCH*_BITWIDTH_STRUCT_BRANCH_RESULT-1:0] i_wbc_result_branch_data
 );
 
 // START ===[ INTERNAL WIRE AREA ]=== START //
@@ -134,11 +138,12 @@ module eulsukdo_scheduler #(
 
     // IST -> RS : Executable (All phyreg in instruction are ready) Internal Instructions
     wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_valid;
+    wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_get;
     wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] ist_rs_ready_inst_data;
 
     // IST -> PRM : Wait Phyreg/ISTmap pair
-    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         ist_prm_wait_phyreg_valid;
-    wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_READY_PRM) )-1:0]                               ist_prm_wait_phyreg_data;
+    wire [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]                                      ist_prm_wait_phyreg_valid;
+    wire [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS*(_BITWIDTH_READY_PRM))-1:0]                ist_prm_wait_phyreg_data;
 
     // RS -> EX : Wait EX Instructions
     wire [STRUCT_EX_CORES-1:0]                                                                rs_ex_wait_inst_valid;
@@ -147,7 +152,7 @@ module eulsukdo_scheduler #(
 
     // EX -> WBC : Done EX Branch Result
     wire [STRUCT_EX_BRANCH-1:0]                                                               ex_wbc_result_branch_valid;
-    wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_JUMP_BRANCH_INFO) )-1:0]                       ex_wbc_result_branch_data;
+    wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_BRANCH_RESULT) )-1:0]                       ex_wbc_result_branch_data;
     
     // EX -> WBC : Done EX Phyreg Result
     wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                                       ex_wbc_result_valid;
@@ -155,7 +160,7 @@ module eulsukdo_scheduler #(
     
     // WBC -> FCL : Branch Result
     wire [STRUCT_EX_BRANCH-1:0]                                                               wbc_fcl_branch_valid;
-    wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_JUMP_BRANCH_INFO) )-1:0]                       wbc_fcl_branch_data;
+    wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_BRANCH_RESULT) )-1:0]                       wbc_fcl_branch_data;
     
     // WBC -> FCL : Done PC
     wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                                       wbc_fcl_done_pc_valid;
@@ -164,7 +169,7 @@ module eulsukdo_scheduler #(
     // FCL -> IM : New PC Request
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         fcl_im_req_pc_valid;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         fcl_im_req_pc_get;
-    wire [(STRUCT_DECODE_NEW_INST *(IS_INST_PC_BITWIDTH) )-1:0]                               fcl_im_req_pc;
+    wire [(STRUCT_DECODE_NEW_INST *_BITWIDTH_FLOW_WINDOWS_PC)-1:0]                             fcl_im_req_pc;
 
     // FCL -> PRM : Unallocate Retired Registers
     wire [STRUCT_UNALLOCATE_PHYREG-1:0]                                                       fcl_prm_unallocate_phyreg_valid;
@@ -182,10 +187,36 @@ module eulsukdo_scheduler #(
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_jump_reg;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         dec_nel_decode_branch;
 
+    wire fcl_nel_discard, nel_fcl_recv_control;
+    wire [STRUCT_DECODE_NEW_INST-1:0] nel_fcl_recv_valid, nel_fcl_recv_keep, nel_fcl_new_inst_valid;
+    wire [STRUCT_DECODE_NEW_INST*_BITWIDTH_FLOW_WINDOWS_PC-1:0] nel_fcl_new_inst_pc;
+    wire [_BITWIDTH_FLOW_WINDOWS_PC-1:0] nel_fcl_jumpbranch_pc;
+
 // END   ===[ INTERNAL WIRE AREA ]===   END //
 
 // START ===[ INSTANCE AREA ]=== START //
     new_entry_logic #(
+        .IS_INST_PC_BITWIDTH(IS_INST_PC_BITWIDTH),
+        .IS_INST_PC_STEP(IS_INST_PC_STEP),
+        .IS_INST_BITWIDTH(IS_INST_BITWIDTH),
+        .IS_INST_REGS(IS_INST_REGS),
+        .IS_INST_OPERANDS(IS_INST_OPERANDS),
+        .IS_INST_IMM(IS_INST_IMM),
+        .EX_INST_MICROOP_BITWIDTH(EX_INST_MICROOP_BITWIDTH),
+        .STRUCT_DECODE_NEW_INST(STRUCT_DECODE_NEW_INST),
+        .STRUCT_INST_STATE_ENTRIES(STRUCT_INST_STATE_ENTRIES),
+        .STRUCT_PHYREGS(STRUCT_PHYREGS),
+        .STRUCT_EX_PATH(STRUCT_EX_PATH),
+        .STRUCT_RS_OUT_ENTRY(STRUCT_RS_OUT_ENTRY),
+        .STRUCT_EX_CORES(STRUCT_EX_CORES),
+        .STRUCT_EX_OUT_RESULT(STRUCT_EX_OUT_RESULT),
+        .STRUCT_EX_OUT_RESULT_SUM(STRUCT_EX_OUT_RESULT_SUM),
+        .STRUCT_EX_BRANCH(STRUCT_EX_BRANCH),
+        .STRUCT_PRM_ENTRY_UPDATE(STRUCT_PRM_ENTRY_UPDATE),
+        .STRUCT_PRM_ENTRY_BUFFER(STRUCT_PRM_ENTRY_BUFFER),
+        .STRUCT_UNALLOCATE_PHYREG(STRUCT_UNALLOCATE_PHYREG),
+        .STRUCT_FLOW_WINDOWS(STRUCT_FLOW_WINDOWS),
+        .STRUCT_FLOW_PC_MAX_RANGE(STRUCT_FLOW_PC_MAX_RANGE)
     ) U_NEW_ENTRY_LOGIC (
         .clk                            (clk),
         .reset_n                        (reset_n),
@@ -194,6 +225,12 @@ module eulsukdo_scheduler #(
         .i_im_recv_inst_valid           (im_nel_recv_inst_valid),
         .o_im_recv_inst_get             (im_nel_recv_inst_get),
         .i_im_recv_pc                   (im_nel_recv_pc),
+        .i_fcl_discard                  (fcl_nel_discard),
+        .o_fcl_recv_valid               (nel_fcl_recv_valid),
+        .o_fcl_recv_keep                (nel_fcl_recv_keep),
+        .o_fcl_recv_control             (nel_fcl_recv_control),
+        .o_fcl_new_inst_valid           (nel_fcl_new_inst_valid),
+        .o_fcl_new_inst_pc              (nel_fcl_new_inst_pc),
 
         // Allocate Physical Registers Input (PRM)
         .i_prm_phyreg_valid             (prm_nel_phyreg_valid),
@@ -227,10 +264,32 @@ module eulsukdo_scheduler #(
 
         // Jump/Branch Information Output (FCL)
         .o_fcl_jumpbranch_valid         (nel_fcl_jumpbranch_valid),
-        .o_fcl_jumpbranch_data          (nel_fcl_jumpbranch_data)
+        .o_fcl_jumpbranch_data          (nel_fcl_jumpbranch_data),
+        .o_fcl_jumpbranch_pc            (nel_fcl_jumpbranch_pc)
     );
 
-    instruction_state_table #(        
+    instruction_state_table #(
+        .IS_INST_PC_BITWIDTH(IS_INST_PC_BITWIDTH),
+        .IS_INST_PC_STEP(IS_INST_PC_STEP),
+        .IS_INST_BITWIDTH(IS_INST_BITWIDTH),
+        .IS_INST_REGS(IS_INST_REGS),
+        .IS_INST_OPERANDS(IS_INST_OPERANDS),
+        .IS_INST_IMM(IS_INST_IMM),
+        .EX_INST_MICROOP_BITWIDTH(EX_INST_MICROOP_BITWIDTH),
+        .STRUCT_DECODE_NEW_INST(STRUCT_DECODE_NEW_INST),
+        .STRUCT_INST_STATE_ENTRIES(STRUCT_INST_STATE_ENTRIES),
+        .STRUCT_PHYREGS(STRUCT_PHYREGS),
+        .STRUCT_EX_PATH(STRUCT_EX_PATH),
+        .STRUCT_RS_OUT_ENTRY(STRUCT_RS_OUT_ENTRY),
+        .STRUCT_EX_CORES(STRUCT_EX_CORES),
+        .STRUCT_EX_OUT_RESULT(STRUCT_EX_OUT_RESULT),
+        .STRUCT_EX_OUT_RESULT_SUM(STRUCT_EX_OUT_RESULT_SUM),
+        .STRUCT_EX_BRANCH(STRUCT_EX_BRANCH),
+        .STRUCT_PRM_ENTRY_UPDATE(STRUCT_PRM_ENTRY_UPDATE),
+        .STRUCT_PRM_ENTRY_BUFFER(STRUCT_PRM_ENTRY_BUFFER),
+        .STRUCT_UNALLOCATE_PHYREG(STRUCT_UNALLOCATE_PHYREG),
+        .STRUCT_FLOW_WINDOWS(STRUCT_FLOW_WINDOWS),
+        .STRUCT_FLOW_PC_MAX_RANGE(STRUCT_FLOW_PC_MAX_RANGE)
     ) U_INSTRUCTION_STATE_TABLE (
         .clk                            (clk),
         .reset_n                        (reset_n),
@@ -246,20 +305,43 @@ module eulsukdo_scheduler #(
         
         // Executable (All phyreg in instruction are ready) Internal Instruction Output (RS)
         .o_rs_ready_inst_valid          (ist_rs_ready_inst_valid),
+        .i_rs_ready_inst_get            (ist_rs_ready_inst_get),
         .o_rs_ready_inst_data           (ist_rs_ready_inst_data),
 
         // Wait Physical Registers Output (PRM)
-        .o_prm_ready_phyreg_valid       (ist_prm_wait_phyreg_valid), 
-        .o_prm_ready_phyreg_data        (ist_prm_wait_phyreg_data)
+        .o_prm_wait_phyreg_valid        (ist_prm_wait_phyreg_valid),
+        .o_prm_wait_phyreg_data         (ist_prm_wait_phyreg_data)
     );
 
     ready_station #(
+        .IS_INST_PC_BITWIDTH(IS_INST_PC_BITWIDTH),
+        .IS_INST_PC_STEP(IS_INST_PC_STEP),
+        .IS_INST_BITWIDTH(IS_INST_BITWIDTH),
+        .IS_INST_REGS(IS_INST_REGS),
+        .IS_INST_OPERANDS(IS_INST_OPERANDS),
+        .IS_INST_IMM(IS_INST_IMM),
+        .EX_INST_MICROOP_BITWIDTH(EX_INST_MICROOP_BITWIDTH),
+        .STRUCT_DECODE_NEW_INST(STRUCT_DECODE_NEW_INST),
+        .STRUCT_INST_STATE_ENTRIES(STRUCT_INST_STATE_ENTRIES),
+        .STRUCT_PHYREGS(STRUCT_PHYREGS),
+        .STRUCT_EX_PATH(STRUCT_EX_PATH),
+        .STRUCT_RS_OUT_ENTRY(STRUCT_RS_OUT_ENTRY),
+        .STRUCT_EX_CORES(STRUCT_EX_CORES),
+        .STRUCT_EX_OUT_RESULT(STRUCT_EX_OUT_RESULT),
+        .STRUCT_EX_OUT_RESULT_SUM(STRUCT_EX_OUT_RESULT_SUM),
+        .STRUCT_EX_BRANCH(STRUCT_EX_BRANCH),
+        .STRUCT_PRM_ENTRY_UPDATE(STRUCT_PRM_ENTRY_UPDATE),
+        .STRUCT_PRM_ENTRY_BUFFER(STRUCT_PRM_ENTRY_BUFFER),
+        .STRUCT_UNALLOCATE_PHYREG(STRUCT_UNALLOCATE_PHYREG),
+        .STRUCT_FLOW_WINDOWS(STRUCT_FLOW_WINDOWS),
+        .STRUCT_FLOW_PC_MAX_RANGE(STRUCT_FLOW_PC_MAX_RANGE)
     ) U_READY_STATION (
         .clk                            (clk),
         .reset_n                        (reset_n),
 
         // Executable (All phyreg in instruction are ready) Internal Instruction Input (IST)
         .i_ist_ready_inst_valid         (ist_rs_ready_inst_valid),
+        .o_ist_ready_inst_get           (ist_rs_ready_inst_get),
         .i_ist_ready_inst_data          (ist_rs_ready_inst_data),
 
         // Wait EX Instruction Output (EX)
@@ -269,6 +351,27 @@ module eulsukdo_scheduler #(
     );
 
     write_back_concatenation #(
+        .IS_INST_PC_BITWIDTH(IS_INST_PC_BITWIDTH),
+        .IS_INST_PC_STEP(IS_INST_PC_STEP),
+        .IS_INST_BITWIDTH(IS_INST_BITWIDTH),
+        .IS_INST_REGS(IS_INST_REGS),
+        .IS_INST_OPERANDS(IS_INST_OPERANDS),
+        .IS_INST_IMM(IS_INST_IMM),
+        .EX_INST_MICROOP_BITWIDTH(EX_INST_MICROOP_BITWIDTH),
+        .STRUCT_DECODE_NEW_INST(STRUCT_DECODE_NEW_INST),
+        .STRUCT_INST_STATE_ENTRIES(STRUCT_INST_STATE_ENTRIES),
+        .STRUCT_PHYREGS(STRUCT_PHYREGS),
+        .STRUCT_EX_PATH(STRUCT_EX_PATH),
+        .STRUCT_RS_OUT_ENTRY(STRUCT_RS_OUT_ENTRY),
+        .STRUCT_EX_CORES(STRUCT_EX_CORES),
+        .STRUCT_EX_OUT_RESULT(STRUCT_EX_OUT_RESULT),
+        .STRUCT_EX_OUT_RESULT_SUM(STRUCT_EX_OUT_RESULT_SUM),
+        .STRUCT_EX_BRANCH(STRUCT_EX_BRANCH),
+        .STRUCT_PRM_ENTRY_UPDATE(STRUCT_PRM_ENTRY_UPDATE),
+        .STRUCT_PRM_ENTRY_BUFFER(STRUCT_PRM_ENTRY_BUFFER),
+        .STRUCT_UNALLOCATE_PHYREG(STRUCT_UNALLOCATE_PHYREG),
+        .STRUCT_FLOW_WINDOWS(STRUCT_FLOW_WINDOWS),
+        .STRUCT_FLOW_PC_MAX_RANGE(STRUCT_FLOW_PC_MAX_RANGE)
     ) U_WRITE_BACK_CONCATENATION (
         // Result branch EX Input (EX)
         .i_ex_result_branch_valid       (ex_wbc_result_branch_valid),
@@ -292,6 +395,27 @@ module eulsukdo_scheduler #(
     );
 
     flow_control_logic #(
+        .IS_INST_PC_BITWIDTH(IS_INST_PC_BITWIDTH),
+        .IS_INST_PC_STEP(IS_INST_PC_STEP),
+        .IS_INST_BITWIDTH(IS_INST_BITWIDTH),
+        .IS_INST_REGS(IS_INST_REGS),
+        .IS_INST_OPERANDS(IS_INST_OPERANDS),
+        .IS_INST_IMM(IS_INST_IMM),
+        .EX_INST_MICROOP_BITWIDTH(EX_INST_MICROOP_BITWIDTH),
+        .STRUCT_DECODE_NEW_INST(STRUCT_DECODE_NEW_INST),
+        .STRUCT_INST_STATE_ENTRIES(STRUCT_INST_STATE_ENTRIES),
+        .STRUCT_PHYREGS(STRUCT_PHYREGS),
+        .STRUCT_EX_PATH(STRUCT_EX_PATH),
+        .STRUCT_RS_OUT_ENTRY(STRUCT_RS_OUT_ENTRY),
+        .STRUCT_EX_CORES(STRUCT_EX_CORES),
+        .STRUCT_EX_OUT_RESULT(STRUCT_EX_OUT_RESULT),
+        .STRUCT_EX_OUT_RESULT_SUM(STRUCT_EX_OUT_RESULT_SUM),
+        .STRUCT_EX_BRANCH(STRUCT_EX_BRANCH),
+        .STRUCT_PRM_ENTRY_UPDATE(STRUCT_PRM_ENTRY_UPDATE),
+        .STRUCT_PRM_ENTRY_BUFFER(STRUCT_PRM_ENTRY_BUFFER),
+        .STRUCT_UNALLOCATE_PHYREG(STRUCT_UNALLOCATE_PHYREG),
+        .STRUCT_FLOW_WINDOWS(STRUCT_FLOW_WINDOWS),
+        .STRUCT_FLOW_PC_MAX_RANGE(STRUCT_FLOW_PC_MAX_RANGE)
     ) U_FLOW_CONTROL_LOGIC (
         .clk                            (clk),
         .reset_n                        (reset_n),
@@ -303,6 +427,15 @@ module eulsukdo_scheduler #(
         // Jump/Branch Information Input (NEL)
         .i_nel_jumpbranch_valid         (nel_fcl_jumpbranch_valid),
         .i_nel_jumpbranch_data          (nel_fcl_jumpbranch_data),
+        .i_nel_jumpbranch_pc            (nel_fcl_jumpbranch_pc),
+        .i_nel_recv_valid               (nel_fcl_recv_valid),
+        .i_nel_recv_keep                (nel_fcl_recv_keep),
+        .i_nel_recv_control             (nel_fcl_recv_control),
+        .o_nel_discard                  (fcl_nel_discard),
+        .i_nel_new_inst_valid           (nel_fcl_new_inst_valid),
+        .i_nel_new_inst_pc              (nel_fcl_new_inst_pc),
+        .i_wbc_branch_valid             (wbc_fcl_branch_valid),
+        .i_wbc_branch_data              (wbc_fcl_branch_data),
 
         // Retired Physical Registers Input (NEL)
         .i_nel_retired_phyreg_valid     (nel_fcl_retired_phyreg_valid),
@@ -319,13 +452,34 @@ module eulsukdo_scheduler #(
     );
 
     physical_register_mapper #(
+        .IS_INST_PC_BITWIDTH(IS_INST_PC_BITWIDTH),
+        .IS_INST_PC_STEP(IS_INST_PC_STEP),
+        .IS_INST_BITWIDTH(IS_INST_BITWIDTH),
+        .IS_INST_REGS(IS_INST_REGS),
+        .IS_INST_OPERANDS(IS_INST_OPERANDS),
+        .IS_INST_IMM(IS_INST_IMM),
+        .EX_INST_MICROOP_BITWIDTH(EX_INST_MICROOP_BITWIDTH),
+        .STRUCT_DECODE_NEW_INST(STRUCT_DECODE_NEW_INST),
+        .STRUCT_INST_STATE_ENTRIES(STRUCT_INST_STATE_ENTRIES),
+        .STRUCT_PHYREGS(STRUCT_PHYREGS),
+        .STRUCT_EX_PATH(STRUCT_EX_PATH),
+        .STRUCT_RS_OUT_ENTRY(STRUCT_RS_OUT_ENTRY),
+        .STRUCT_EX_CORES(STRUCT_EX_CORES),
+        .STRUCT_EX_OUT_RESULT(STRUCT_EX_OUT_RESULT),
+        .STRUCT_EX_OUT_RESULT_SUM(STRUCT_EX_OUT_RESULT_SUM),
+        .STRUCT_EX_BRANCH(STRUCT_EX_BRANCH),
+        .STRUCT_PRM_ENTRY_UPDATE(STRUCT_PRM_ENTRY_UPDATE),
+        .STRUCT_PRM_ENTRY_BUFFER(STRUCT_PRM_ENTRY_BUFFER),
+        .STRUCT_UNALLOCATE_PHYREG(STRUCT_UNALLOCATE_PHYREG),
+        .STRUCT_FLOW_WINDOWS(STRUCT_FLOW_WINDOWS),
+        .STRUCT_FLOW_PC_MAX_RANGE(STRUCT_FLOW_PC_MAX_RANGE)
     ) U_PHYSICAL_REGISTER_MAPPER (
         .clk                            (clk),
         .reset_n                        (reset_n),
 
         // Wait Physical Registers Input (IST)
-        .i_ist_ready_phyreg_valid       (ist_prm_wait_phyreg_valid), 
-        .i_ist_ready_phyreg_data        (ist_prm_wait_phyreg_data),
+        .i_ist_wait_phyreg_valid        (ist_prm_wait_phyreg_valid),
+        .i_ist_wait_phyreg_data         (ist_prm_wait_phyreg_data),
         
         // Broadcast Done phyreg Input (WBC)
         .i_wbc_done_phyreg_valid        (wbc_broadcast_done_phyreg_valid),
@@ -342,7 +496,7 @@ module eulsukdo_scheduler #(
 
         // Ready Physical Registers Output (IST)
         .o_ist_ready_phyreg_valid       (prm_ist_ready_phyreg_valid), 
-        .o_ist_ready_phyreg_data        (prm_ist_ready_phyreg_data),
+        .o_ist_ready_phyreg_data        (prm_ist_ready_phyreg_data)
     );
 
 // END   ===[ INSTANCE AREA ]===   END //
@@ -357,7 +511,6 @@ module eulsukdo_scheduler #(
     assign im_nel_recv_inst_valid     = i_im_recv_inst_valid;
     assign o_im_recv_inst_get         = im_nel_recv_inst_get;
     assign im_nel_recv_pc             = i_im_recv_pc;
-    assign im_nel_recv_inst           = i_im_recv_inst;
 
     // Decoder Info Receive
     assign dec_nel_decode_exception   = i_nel_decode_exception;
@@ -379,6 +532,8 @@ module eulsukdo_scheduler #(
     // EX Result Receive (EX Out)
     assign ex_wbc_result_valid        = i_wbc_result_valid;
     assign ex_wbc_result_data         = i_wbc_result_data;
+    assign ex_wbc_result_branch_valid = i_wbc_result_branch_valid;
+    assign ex_wbc_result_branch_data  = i_wbc_result_branch_data;
 
 // END   ===[ INPUT, OUTPUT AREA ]===   END //
 

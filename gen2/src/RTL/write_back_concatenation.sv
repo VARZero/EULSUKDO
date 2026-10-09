@@ -32,7 +32,7 @@ module write_back_concatenation #(
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
     localparam int _BITWIDTH_STRUCT_PHYREGS             = $clog2(STRUCT_PHYREGS),
     localparam int _BITWIDTH_STRUCT_EX_PATH             = $clog2(STRUCT_EX_PATH),
-    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = $clog2(STRUCT_FLOW_WINDOWS),
+    localparam int _BITWIDTH_STRUCT_FLOW_WINDOWS        = (STRUCT_FLOW_WINDOWS > 1)? $clog2(STRUCT_FLOW_WINDOWS) : 1,
     localparam int _BITWIDTH_READY_PRM                  = _BITWIDTH_STRUCT_INST_STATE_ENTRIES+_BITWIDTH_STRUCT_PHYREGS,
     localparam int _BITWIDTH_FLOW_WINDOWS_PC            = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH,
@@ -60,12 +60,14 @@ module write_back_concatenation #(
     localparam int _BITWIDTH_STRUCT_JUMP_BRANCH_INFO    = 1 // Jump Register Flag
                                                          + 1 // Branch Flag
                                                          + IS_INST_PC_BITWIDTH, // New Program Counter
+    localparam int _BITWIDTH_STRUCT_BRANCH_RESULT      = IS_INST_PC_BITWIDTH+_BITWIDTH_FLOW_WINDOWS_PC,
     localparam int _BITWIDTH_STRUCT_EX_DONE_PC          = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                                          + IS_INST_PC_BITWIDTH
 ) (
+    // Branch result: {resolved_next_pc, flow, instruction_pc}; includes not-taken next PC.
     // Result branch EX Input (EX) 
     input  wire [STRUCT_EX_BRANCH-1:0]                                           i_ex_result_branch_valid,
-    input  wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_JUMP_BRANCH_INFO) )-1:0]   i_ex_result_branch_data,
+    input  wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_BRANCH_RESULT) )-1:0]   i_ex_result_branch_data,
 
     // Result EX Input (EX)
     input  wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                   i_ex_result_valid,
@@ -73,7 +75,7 @@ module write_back_concatenation #(
 
     // Branch Result Output (FCL)
     output wire [STRUCT_EX_BRANCH-1:0]                                           o_fcl_branch_valid,
-    output wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_JUMP_BRANCH_INFO) )-1:0]   o_fcl_branch_data,
+    output wire [(STRUCT_EX_BRANCH *(_BITWIDTH_STRUCT_BRANCH_RESULT) )-1:0]   o_fcl_branch_data,
     
     // Done PC Output (FCL)
     output wire [STRUCT_EX_OUT_RESULT_SUM-1:0]                                   o_fcl_done_pc_valid,

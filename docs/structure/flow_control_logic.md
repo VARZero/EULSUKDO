@@ -25,6 +25,11 @@
 `valid && get`에서 개별 수락되며, 수락되지 않은 lane의 valid와 `{Flow, PC}`는 유지된다.
 윈도우 끝에 남은 명령 수가 적으면 일부 lane만 유효하다.
 
+scheduler 외부 포트는 `o_im_req_pc_valid`, `i_im_req_pc_get`, `o_im_req_pc`이며,
+각 lane의 데이터는 MSB부터 `{Flow, PC}`입니다. IM 응답은 `i_im_recv_inst_valid`,
+`o_im_recv_inst_get`, `i_im_recv_pc` 및 해당 명령의 디코드 정보로 NEL에 전달합니다.
+요청과 응답 모두 lane별 `Valid && Get`에서 전송됩니다.
+
 현재 구현은 **한 요청 묶음만 진행 중일 수 있으며 분기 예측을 하지 않는다.**
 IM은 수락한 요청마다 응답해야 하고, 응답은 프로그램 순서를 유지해야 한다.
 여러 응답을 한 사이클에 내보낼 때도 낮은 lane부터 프로그램 순서여야 한다.
@@ -53,6 +58,11 @@ FCL의 `o_nel_discard`는 나중에 도착하는 뒤쪽 응답도 버리게 한�
 `i_wbc_result_branch_valid/data`로 보고해야 한다. 분기 결과 보고와 별개로
 해당 명령의 일반 `i_wbc_result_valid/data` 완료 보고도 필요하다.
 FCL은 분기 결과의 `{Flow, instruction_pc}`가 기다리는 명령과 일치할 때만 재개한다.
+
+일반 완료 데이터는 MSB부터 `{RD, Flow, instruction_pc}`이고,
+별도 분기 결과는 `{resolved_next_pc, Flow, instruction_pc}`입니다.
+조건 분기가 성립하지 않아도 순차 실행 주소를 실제 다음 PC로 보고하므로 Branch Active는 사용하지 않습니다.
+이 포맷은 [전체 EX 규약](Top.md#ex-연결을-위한-규칙)과 [WBC](write_back_concatenation.md)에도 동일하게 적용합니다.
 
 `tb_flow_control_logic.sv`는 순서대로 반환, 부분 요청 수락, 중복 완료, 분기 결과 식별을 검사한다.
 `tb_scheduler_flow.sv`는 실제 NEL/IST/PRM/RS/WBC/FCL을 연결해 뒤쪽 응답 폐기와

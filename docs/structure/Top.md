@@ -103,6 +103,11 @@ Valid와 Get 양쪽의 동일한 비트 위치의 필드가 발생하면 **데�
 4. Get이 발생하면 수신하는 부분은 Valid 신호가 발생된 것 보고 처리합니다.
 5. 다음 클럭 사이클에 전송하는 부분이 데이터 전송 준비가 안된경우, Valid 신호는 비활성화 합니다.
 
+gen2에서 `Valid && !Get`인 IST → RS 채널은 같은 Valid와 Data를 유지합니다. 일부 채널만 수락되어도 나머지 채널의 위치와 데이터는 바뀌지 않습니다.
+NEL → IST는 예외로, NEL이 모든 Get을 확인한 뒤 해당 묶음의 Valid를 발생시킵니다.
+PRM → NEL은 번호 할당에 이 규약을 사용하되, PRM 입력 정체 시에는 할당 Valid를 내려 새 rename을 막습니다.
+PRM → IST의 준비 완료 통지는 아래의 **Valid 기반 전송**이며 Get이 없습니다.
+
 ### Valid 기반 전송 단위의 구체적인 설명
 |Signal Name|Direction|Description|
 |-|-|-|
@@ -117,32 +122,39 @@ Valid 신호가 발생하면 해당 데이터를 항상 수신해야 합니다.
 3. 다음 클럭 사이클에 전송하는 부분이 데이터 전송 준비가 안된경우, Valid 신호는 비활성화 합니다.
 
 ### EX 연결을 위한 규칙
+아래 포맷은 현재 `gen2` scheduler 경계를 기준으로 합니다.
+개념적인 Micro-Op에는 EX Path가 포함되며, RTL에서는 분류와 디코딩을 쉽게 하기 위해 `EX Path`와 `Micro-Opcode`를 별도 필드로 표현합니다.
+RS는 EX Path를 포함한 패킷을 그대로 EX에 전달합니다. 소스 레지스터 값 읽기와 결과 값 저장은 이 scheduler 인터페이스 바깥에서 처리합니다.
+
 을숙도 아키텍쳐는 Execution Unit을 모두 커스텀 하고 추가하는 구조입니다.  
 이때 사용되는 EX의 명령 포맷과 결과 포맷은 특정한 구조를 가져야 합니다.  
-**반드시, 모든 커스텀 EX 모듈들의 입력 명령 포맷은 동일해야 합니다. 결과 포맷은 점프/분기 및 상태제어 EX를 제외하면 동일한 구조를 가집니다.**  
+**모든 커스텀 EX 모듈의 입력 명령과 일반 완료 포맷은 동일합니다. 분기 EX는 별도의 분기 결과 채널도 사용합니다.**
 LSB부터 MSB로 왼쪽부터 오른쪽으로 입력 명령 포맷을 나타내면
-|Program Counter|Flow Index|Micro-Opcode|Immediate Value|RD Address|...RS(1~n) Addresses List...|...RS(1~n) Values List...|
+|Program Counter|Flow Index|EX Path|Micro-Opcode|Immediate Value|RD Address|...RS(1~n) Addresses List...|
 |-|-|-|-|-|-|-|
 
 형태로 배치됩니다.  
 각 필드의 내용은
 - **Program Counter**: Instruction Memory에서 해당 명령의 주소입니다.
 - **Flow Index**: 해당 명령의 영령 윈도우 번호입니다. 점프/분기로 명령 윈도우가 구분되는데, 이 단위를 Flow Index로 구분됩니다.
-- **Micro-Opcode**: Execution Unit의 Opcode(명령 구분자)입니다.
+- **EX Path / Micro-Opcode**: 실행 유닛 종류와 그 유닛의 명령 구분자입니다. 함께 개념적인 Micro-Op를 구성합니다.
 - **Immediate Value**: 명령에 포함된 즉시 입력되는 값입니다.
 - **RD Address**: 결과가 저장되는 레지스터 목적지 번호입니다.
 - **RS(1~n) Addresses List**: 필요한 레지스터 소스 번호입니다.
-- **RS(1~n) Values List**: 필요한 레지스터 소스의 값입니다.
 
 LSB부터 MSB로 왼쪽부터 오른쪽으로 일반적인 EX의 출력 결과 포맷을 나타내면
-|Program Counter|Flow Index|RD Address|RD Value|
-|-|-|-|-|  
+|Program Counter|Flow Index|RD Address|
+|-|-|-|
 
-형태 이고, Branch EX의 출력 결과 포맷을 나타내면
-|Program Counter|Flow Index|RD Address|RD Value|Branch Active|New Program Counter|
-|-|-|-|-|-|-|  
+형태입니다. Branch EX도 이 일반 완료 채널을 사용하며, 별도의 분기 결과 채널을 추가로 사용합니다.
+분기 결과 채널도 LSB부터 MSB 순서입니다.
+|Instruction Program Counter|Flow Index|Resolved Next Program Counter|
+|-|-|-|
 
-형태가 됩니다.
+`i_wbc_result_branch_valid/data`는 분기 명령 자신의 `{Flow, PC}`와 실제 다음 PC를 보고합니다.
+조건 분기의 taken/not-taken 모두 실제 다음 PC를 보고하므로 Branch Active 필드는 없습니다.
+분기 결과와 일반 `i_wbc_result_valid/data` 완료 보고는 모두 필요합니다.
+IM의 lane별 요청/응답과 NEL/FCL 추가 신호는 [FCL의 gen2 인터페이스](flow_control_logic.md#gen2-인터페이스-변경)를 따릅니다.
 
 ### 파라미터
 을숙도 아키텍쳐는 확장 가능한 구조를 가집니다.  
@@ -175,7 +187,7 @@ Execution Unit에 대한 파라미터입니다. 상단 포맷에 맞게 EX의 �
 - ```STRUCT_INST_STATE_ENTRIES```: Instruction State Entry 갯수입니다.
 - ```STRUCT_PHYREGS```: 내부 레지스터 갯수입니다.
 - ```STRUCT_EX_PATH```: Execution Unit의 종류입니다. 만약 BRANCH유닛x1 ALUx3 LDST유닛x2이면 EX의 종류인 3으로 작성합니다. 
-- ```STRUCT_RS_DEPTH```: RS FIFO의 깊이 입니다.  
+- gen2 RS FIFO의 최소 깊이는 각 EX Path마다 `STRUCT_INST_STATE_ENTRIES`를 사용합니다. 별도의 `STRUCT_RS_DEPTH` 파라미터는 현재 없습니다.
 - ```STRUCT_RS_OUT_ENTRY[STRUCT_EX_PATH]```: EX_PATH에 따른 RS FIFO에서 출력되는 엔트리의 갯수입니다.  
 각 EX_PATH에 따른 EX 유닛 수와 동일합니다.
 - ```STRUCT_EX_CORES```: Execution Unit의 총 개수 입니다. 만약 BRANCH유닛x1 ALUx3 LDST유닛x2이면 EX의 개수인 6으로 작성합니다. 

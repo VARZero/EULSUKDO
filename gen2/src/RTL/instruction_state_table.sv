@@ -115,6 +115,8 @@ module instruction_state_table #(
     logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0]            allocate_alloc_num_list [0:STRUCT_DECODE_NEW_INST-1];
     logic [STRUCT_DECODE_NEW_INST-1:0]                         allocate_is_entries;
     logic [STRUCT_DECODE_NEW_INST-1:0]                         ready_is_entries;
+    logic [STRUCT_DECODE_NEW_INST-1:0]                         bypass_valid, bypass_valid_next;
+    logic [(STRUCT_DECODE_NEW_INST*_BITWIDTH_EX_INST_WIDTH)-1:0] bypass_data, bypass_data_next;
     logic [(_BITWIDTH_PHY_RS_INST*STRUCT_DECODE_NEW_INST)-1:0] rs_phyregs;
     logic [STRUCT_DECODE_NEW_INST-1:0]                         ready_nel_update        [0:IS_INST_OPERANDS-1];
 
@@ -140,15 +142,22 @@ module instruction_state_table #(
     logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0]           issue_start, issue_start_next;
     logic [(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_STRUCT_INST_STATE_ENTRIES)-1:0]
                                                                issue_istnum_all;
+    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        issue_hold, issue_hold_next;
+    logic [(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_STRUCT_INST_STATE_ENTRIES)-1:0]
+                                                               issue_hold_num, issue_hold_num_next;
+    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        issue_fire, return_pending, return_pending_next;
+    logic [(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_STRUCT_INST_STATE_ENTRIES)-1:0]
+                                                               return_num, return_num_next, unallocate_num;
+    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        unallocate_valid;
 
     integer idx_internal_inst, idx_rs, idx_update, idx_entry;
-    integer issue_entry, issue_channel;
+    integer issue_entry, issue_channel, idx_issue;
 
-    // Admission depends only on allocator offers and RS capacity. Keeping
+    // Admission reserves a complete bundle in the ready bypass register. Keeping
     // this wiring outside the NEL-consuming block also makes that independence
     // visible to simulators when NEL gates its Valid with our Get.
     assign nel_accept_enable = reset_n &&
-        (&allocate_valid) && (&i_rs_ready_inst_get);
+        (&allocate_valid) && !(|(bypass_valid & ~i_rs_ready_inst_get[STRUCT_PRM_ENTRY_UPDATE +: STRUCT_DECODE_NEW_INST]));
     assign o_nel_new_inst_get = {STRUCT_DECODE_NEW_INST{nel_accept_enable}};
 
     // PRM read addresses are pure input wiring, independent of the ready checker.
@@ -169,11 +178,23 @@ module instruction_state_table #(
             active_entries  <= '0;
             pending_entries <= '0;
             issue_start     <= '0;
+            bypass_valid    <= '0;
+            bypass_data     <= '0;
+            issue_hold      <= '0;
+            issue_hold_num  <= '0;
+            return_pending  <= '0;
+            return_num      <= '0;
         end
         else begin
             active_entries  <= active_entries_next;
             pending_entries <= pending_entries_next;
             issue_start     <= issue_start_next;
+            bypass_valid    <= bypass_valid_next;
+            bypass_data     <= bypass_data_next;
+            issue_hold      <= issue_hold_next;
+            issue_hold_num  <= issue_hold_num_next;
+            return_pending  <= return_pending_next;
+            return_num      <= return_num_next;
         end
     end
 
@@ -188,6 +209,15 @@ module instruction_state_table #(
         prm_update_write     = '0;
         ready_check_section  = '0;
         ready_check_phyreg_target = '0;
+        bypass_valid_next = bypass_valid & ~i_rs_ready_inst_get[STRUCT_PRM_ENTRY_UPDATE +: STRUCT_DECODE_NEW_INST];
+        bypass_data_next = bypass_data;
+        issue_hold_next = '0;
+        issue_hold_num_next = issue_hold_num;
+        issue_fire = '0;
+        return_pending_next = return_pending & ~unallocate_ready;
+        return_num_next = return_num;
+        unallocate_valid = '0;
+        unallocate_num = return_num;
 
         for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
             ready_prm_update[idx_rs] = last_ready[idx_rs];
@@ -222,8 +252,12 @@ module instruction_state_table #(
             nel_new_inst_data[(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst) +: _BITWIDTH_EX_INST_WIDTH] = 
                 target_ist_entry[idx_internal_inst];
 
-            o_rs_ready_inst_data[(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_EX_INST_WIDTH)+(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst) 
-                +: _BITWIDTH_EX_INST_WIDTH] = target_ist_entry[idx_internal_inst];
+            if (ready_is_entries[idx_internal_inst]) begin
+                bypass_valid_next[idx_internal_inst] = 1'b1;
+                bypass_data_next[idx_internal_inst*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] = target_ist_entry[idx_internal_inst];
+            end
+            o_rs_ready_inst_data[(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_EX_INST_WIDTH)+(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst)
+                +: _BITWIDTH_EX_INST_WIDTH] = bypass_data[idx_internal_inst*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH];
         end
 
         for (idx_internal_inst = 0; idx_internal_inst < STRUCT_DECODE_NEW_INST; idx_internal_inst = idx_internal_inst+1) begin
@@ -282,27 +316,46 @@ module instruction_state_table #(
 
         // Registered pending entries issue from the following cycle. Round-robin
         // selection prevents repeated low-index reuse from starving older entries.
-        // RS transfer and allocator return happen together. Hold the pending
-        // entry if either destination is unable to accept it.
-        // Valid is a transfer pulse, as in NEL.
+        // Select a new batch only when the previous offers have all transferred.
+        // Partial Get must not compact or replace the remaining lane payloads.
         for (idx_entry = 0; idx_entry < STRUCT_INST_STATE_ENTRIES; idx_entry = idx_entry+1) begin
             issue_entry = int'(issue_start) + idx_entry;
             if (issue_entry >= STRUCT_INST_STATE_ENTRIES) issue_entry = issue_entry - STRUCT_INST_STATE_ENTRIES;
-            if (pending_entries[issue_entry] && (issue_channel < STRUCT_PRM_ENTRY_UPDATE)) begin
+            if (!(|issue_hold) && pending_entries[issue_entry] && (issue_channel < STRUCT_PRM_ENTRY_UPDATE)) begin
                 issue_istnum_all[(issue_channel*_BITWIDTH_STRUCT_INST_STATE_ENTRIES) +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
                     _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(issue_entry);
-                ready_prm_rs[issue_channel] = reset_n && i_rs_ready_inst_get[issue_channel] && unallocate_ready[issue_channel];
-                if (ready_prm_rs[issue_channel]) begin
-                    active_entries_next[issue_entry]  = 1'b0;
-                    pending_entries_next[issue_entry] = 1'b0;
-                    issue_start_next = (issue_entry == STRUCT_INST_STATE_ENTRIES-1)? '0 :
-                        _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(issue_entry+1);
-                end
+                ready_prm_rs[issue_channel] = reset_n && !return_pending[issue_channel];
                 issue_channel = issue_channel+1;
             end
         end
 
-        o_rs_ready_inst_valid   = {ready_is_entries, ready_prm_rs};
+        if (|issue_hold) begin
+            issue_istnum_all = issue_hold_num;
+            ready_prm_rs = issue_hold & {STRUCT_PRM_ENTRY_UPDATE{reset_n}};
+        end
+        issue_fire = ready_prm_rs & i_rs_ready_inst_get[STRUCT_PRM_ENTRY_UPDATE-1:0];
+        issue_hold_next = ready_prm_rs & ~i_rs_ready_inst_get[STRUCT_PRM_ENTRY_UPDATE-1:0];
+        issue_hold_num_next = issue_istnum_all;
+        for (idx_issue = 0; idx_issue < STRUCT_PRM_ENTRY_UPDATE; idx_issue = idx_issue+1) begin
+            // One return slot per lane decouples allocator backpressure from
+            // an already advertised RS offer. IDs cannot be reused until returned.
+            unallocate_valid[idx_issue] = reset_n && (return_pending[idx_issue] || issue_fire[idx_issue]);
+            if (!return_pending[idx_issue])
+                unallocate_num[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
+                    issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
+            if (issue_fire[idx_issue]) begin
+                active_entries_next[issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES]] = 1'b0;
+                pending_entries_next[issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES]] = 1'b0;
+                issue_start_next = (int'(issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES]) == STRUCT_INST_STATE_ENTRIES-1)? '0 :
+                    issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] + 1'b1;
+                if (!unallocate_ready[idx_issue]) begin
+                    return_pending_next[idx_issue] = 1'b1;
+                    return_num_next[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
+                        issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
+                end
+            end
+        end
+        o_rs_ready_inst_valid = {bypass_valid & {STRUCT_DECODE_NEW_INST{reset_n}}, ready_prm_rs};
     end
 
     allocator #(
@@ -315,9 +368,9 @@ module instruction_state_table #(
         .clk                (clk),
         .reset_n            (reset_n),
         .i_flush            (1'b0),
-        .i_unallocate       (ready_prm_rs),
+        .i_unallocate       (unallocate_valid),
         .o_unallocate_ready (unallocate_ready),
-        .i_unallocate_data  (issue_istnum_all),
+        .i_unallocate_data  (unallocate_num),
         .i_allocate         (allocate_is_entries),
         .o_allocate_valid   (allocate_valid),
         .o_allocate_data    (allocate_alloc_num_out)

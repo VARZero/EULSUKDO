@@ -46,10 +46,13 @@ module tb_instruction_state_table #(
     logic [OPERANDS-1:0] reference_ready [0:1023];
     integer request_count, accept_count, issue_count;
     integer pc, slot, preg, mapped_slot;
+    logic [OUTS-1:0] stalled;
+    logic [OUTS*EX_W-1:0] stalled_data;
 
     always @(posedge clk) begin
         if (!reset_n) begin
             request_count = 0; accept_count = 0; issue_count = 0;
+            stalled = '0; stalled_data = '0;
             for (int p = 0; p < 1024; p++) begin
                 accepted[p] = 0; seen[p] = 0; slot_of[p] = -1;
                 expected[p] = '0; reference_ready[p] = '0;
@@ -100,8 +103,10 @@ module tb_instruction_state_table #(
                 else if (|wait_valid[d*OPERANDS +: OPERANDS]) $fatal(1, "Wait request without acceptance");
             end
             for (int c = 0; c < OUTS; c++) begin
-                if (rs_valid[c]) begin
-                    if (!rs_get[c]) $fatal(1, "RS pulse without Get");
+                if (stalled[c] && (!rs_valid[c] ||
+                    (rs_data[c*EX_W +: EX_W] != stalled_data[c*EX_W +: EX_W])))
+                    $fatal(1, "RS offer changed before handshake lane=%0d", c);
+                if (rs_valid[c] && rs_get[c]) begin
                     pc = int'(rs_data[c*EX_W +: 32]);
                     if ((accepted[pc] != 1) || (seen[pc] != 0)) $fatal(1, "Unexpected/duplicate issue PC=%0d", pc);
                     if (!(&reference_ready[pc])) $fatal(1, "Early issue PC=%0d", pc);
@@ -110,6 +115,8 @@ module tb_instruction_state_table #(
                     if (slot_of[pc] >= 0) slot_pc[slot_of[pc]] = -1;
                 end
             end
+            stalled = rs_valid & ~rs_get;
+            stalled_data = rs_data;
         end
     end
 
@@ -201,18 +208,27 @@ module tb_instruction_state_table #(
         notify_slot(0, saved_slot, 9); step(); prm_valid = '0;
         repeat (4) step();
 
-        // PRM pulses continue during RS backpressure; NEL must hold its bundle.
+        // PRM pulses continue during backpressure. One already-ready NEL bundle
+        // is buffered, then further NEL admission stops until that bundle drains.
         send_one(7, '0, 1); saved_requests = request_count;
         rs_get = '0;
         nel_valid = '1;
         for (int d = 0; d < DECODE; d++) nel_data[d*INST_W +: INST_W] = instruction(20+d, '1, 0);
-        notify_slot(0, slot_of[7], 9); step(); prm_valid = '0;
+        notify_slot(0, slot_of[7], 9); step(); prm_valid = '0; nel_valid = '0;
         repeat (8) step();
         if ((seen[7] != 0) || (request_count != saved_requests) || (|nel_get)) $fatal(1, "Stall was not retained");
+        if (!rs_valid[0] || !(&rs_valid[UPDATES +: DECODE])) $fatal(1, "Valid depends on Get");
         // Partial Get permits only the corresponding pending output channel.
         rs_get[0] = 1; await_issue(7);
-        if (accepted[20] != 0) $fatal(1, "Partial bundle acceptance");
-        rs_get = '1; step(); nel_valid = '0;
+        if (accepted[20] != 1 || seen[20] != 0) $fatal(1, "Ready bypass was not buffered");
+        // Drain ready bypass lanes separately, including the highest lane first.
+        rs_get = '0;
+        for (int d = DECODE-1; d >= 0; d--) begin
+            rs_get[UPDATES+d] = 1'b1;
+            step();
+            rs_get[UPDATES+d] = 1'b0;
+        end
+        rs_get = '1;
         for (int d = 0; d < DECODE; d++) await_issue(20+d);
 
         // Fill until fewer than DECODE offers remain. No ready notifications
@@ -235,7 +251,15 @@ module tb_instruction_state_table #(
             end
             step(); prm_valid = '0;
         end
-        repeat (3) step(); rs_get = '1;
+        // A receiver may wait for Valid before asserting Get. Accept sparse,
+        // changing lanes and verify other lanes retain their exact payloads.
+        repeat (3) step();
+        for (int t = 0; t < fill_count*4; t++) begin
+            #1;
+            for (int c = 0; c < OUTS; c++) rs_get[c] = rs_valid[c] && ((t+c)%3 != 0);
+            step();
+        end
+        rs_get = '1;
         for (int n = 0; n < fill_count; n++) await_issue(100+n);
         await_get();
 

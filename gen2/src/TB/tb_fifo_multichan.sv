@@ -1,6 +1,7 @@
 `timescale 1ns/1ps
 
 module tb_fifo_multichan #(
+    parameter int DATA_WIDTH = 32,
     parameter int READ_CHANNEL = 2,
     parameter int WRITE_CHANNEL = 3,
     parameter int MIN_FIFO_ENTRY = 17,
@@ -9,15 +10,15 @@ module tb_fifo_multichan #(
     logic clk = 0, reset_n = 0, flush = 0;
     always #5 clk = ~clk;
     logic [WRITE_CHANNEL-1:0] push, ready;
-    logic [WRITE_CHANNEL*32-1:0] push_data;
+    logic [WRITE_CHANNEL*DATA_WIDTH-1:0] push_data;
     logic [READ_CHANNEL-1:0] pop, valid;
-    logic [READ_CHANNEL*32-1:0] data;
-    int expected[$];
+    logic [READ_CHANNEL*DATA_WIDTH-1:0] data;
+    logic [DATA_WIDTH-1:0] expected[$];
     int serial = 1, accepted, removed;
     logic [31:0] rng = 32'hc0ffee13;
 
     fifo_multichan #(
-        .DATA_WIDTH(32), .READ_CHANNEL(READ_CHANNEL), .WRITE_CHANNEL(WRITE_CHANNEL),
+        .DATA_WIDTH(DATA_WIDTH), .READ_CHANNEL(READ_CHANNEL), .WRITE_CHANNEL(WRITE_CHANNEL),
         .MIN_FIFO_ENTRY(MIN_FIFO_ENTRY), .USE_BRAM(USE_BRAM != 0)
     ) dut (
         .clk(clk), .reset_n(reset_n), .i_flush(flush),
@@ -33,8 +34,8 @@ module tb_fifo_multichan #(
         else begin
             for (int r = 0; r < READ_CHANNEL; r++) begin
                 if (valid[r]) begin
-                    if ((r >= expected.size()) || (data[r*32 +: 32] != 32'(expected[r])))
-                        $fatal(1, "FIFO order/data error lane=%0d data=%0d count=%0d", r, data[r*32 +: 32], expected.size());
+                    if ((r >= expected.size()) || (data[r*DATA_WIDTH +: DATA_WIDTH] != expected[r]))
+                        $fatal(1, "FIFO order/data error lane=%0d data=%h count=%0d", r, data[r*DATA_WIDTH +: DATA_WIDTH], expected.size());
                     if ((r > 0) && !valid[r-1]) $fatal(1, "Non-prefix FIFO output");
                 end
             end
@@ -42,7 +43,7 @@ module tb_fifo_multichan #(
                 if (valid[r] && pop[r]) begin expected.delete(r); removed++; end
             end
             for (int w = 0; w < WRITE_CHANNEL; w++) begin
-                if (push[w] && ready[w]) begin expected.push_back(int'(push_data[w*32 +: 32])); accepted++; end
+                if (push[w] && ready[w]) begin expected.push_back(push_data[w*DATA_WIDTH +: DATA_WIDTH]); accepted++; end
             end
         end
     end
@@ -56,7 +57,9 @@ module tb_fifo_multichan #(
     endfunction
     task automatic new_data;
         for (int w = 0; w < WRITE_CHANNEL; w++) begin
-            push_data[w*32 +: 32] = 32'(serial); serial++;
+            for (int b = 0; b < DATA_WIDTH; b++)
+                push_data[w*DATA_WIDTH+b] = 1'((serial >> (b%31)) ^ (b/31));
+            serial++;
         end
     endtask
     task automatic drain;
@@ -96,7 +99,7 @@ module tb_fifo_multichan #(
         push = '1;
         repeat (10) begin new_data(); step(); end
         drain();
-        $display("PASS FIFO R=%0d W=%0d N=%0d BRAM=%0d", READ_CHANNEL, WRITE_CHANNEL, MIN_FIFO_ENTRY, USE_BRAM);
+        $display("PASS FIFO WIDTH=%0d R=%0d W=%0d N=%0d BRAM=%0d", DATA_WIDTH, READ_CHANNEL, WRITE_CHANNEL, MIN_FIFO_ENTRY, USE_BRAM);
         $finish;
     end
     initial begin

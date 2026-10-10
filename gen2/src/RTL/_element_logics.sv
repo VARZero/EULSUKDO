@@ -646,8 +646,6 @@ module fifo_multichan #(
     
     logic                              fifo_empty, fifo_full;
 
-    logic [PUSH_ORDERING_VG_LEN-1:0]   push_new_vg_valid;
-    logic [PUSH_ORDERING_VG_WIDTH-1:0] push_new_vg_data;
     logic                              push_fifo_valid;
     logic [FIFO_DATA_WIDTH-1:0]        push_fifo_data;
     logic [OUT_ORDERING_VG_LEN-1:0]    out_new_vg_valid;
@@ -656,7 +654,11 @@ module fifo_multichan #(
     logic [FIFO_DATA_WIDTH-1:0]        pop_fifo_data;
 
     logic output_room, bypass_to_output, drain_push_order;
-    integer retained_count, source_position;
+    localparam int PUSH_COUNT_WIDTH = $clog2(PUSH_ORDERING_VG_LEN+WRITE_CHANNEL+1);
+    wire [PUSH_ORDERING_VG_LEN-1:0] retained_valid;
+    wire [PUSH_ORDERING_VG_WIDTH-1:0] retained_data;
+    wire [PUSH_COUNT_WIDTH-1:0] retained_count, push_occupancy;
+    logic [PUSH_COUNT_WIDTH-1:0] append_position [0:WRITE_CHANNEL];
 
     // The output buffer accepts a complete FIFO word. If the FIFO is empty,
     // bypass its latency; otherwise its older data always has priority.
@@ -668,13 +670,18 @@ module fifo_multichan #(
     assign push_fifo_data = push_ord_vg_data_reg[FIFO_DATA_WIDTH-1:0];
     assign drain_push_order = bypass_to_output || push_fifo_valid;
 
+    // Ordering state is already a packed prefix. Draining removes one fixed
+    // FIFO word, so retaining it needs only a constant shift, not a gather.
+    assign retained_valid = drain_push_order ? (push_ord_vg_valid_reg >> FIFO_CHANNEL) : push_ord_vg_valid_reg;
+    assign retained_data = drain_push_order ? (push_ord_vg_data_reg >> FIFO_DATA_WIDTH) : push_ord_vg_data_reg;
+    assign retained_count = PUSH_COUNT_WIDTH'($countones(retained_valid));
+    assign push_occupancy = retained_count + PUSH_COUNT_WIDTH'($countones(push_valid_reg));
+
     // Reserve room for the whole next input bundle, including the current
     // input register. FIFO fullness alone cannot describe ordering-buffer space.
     // Ready is independent of i_push and i_pop (safe for Get-gated producers).
     assign o_push_ready = {WRITE_CHANNEL{reset_n && !i_flush &&
-        (($countones(push_ord_vg_valid_reg) + $countones(push_valid_reg) -
-          (drain_push_order ? $countones(push_ord_vg_valid_reg[FIFO_CHANNEL-1:0]) : 0))
-            <= (PUSH_ORDERING_VG_LEN-WRITE_CHANNEL))}};
+        (push_occupancy <= PUSH_COUNT_WIDTH'(PUSH_ORDERING_VG_LEN-WRITE_CHANNEL))}};
     assign o_pop_valid = out_ord_vg_valid_reg[READ_CHANNEL-1:0] &
         {READ_CHANNEL{reset_n && !i_flush}};
     assign o_pop_data = out_ord_vg_data_reg[READ_DATA_WIDTH-1:0];
@@ -682,30 +689,26 @@ module fifo_multichan #(
     always_comb begin
         push_valid_reg_next = i_push & o_push_ready;
         push_data_reg_next  = i_push_data;
-        push_new_vg_valid   = '0;
-        push_new_vg_data    = '0;
-        retained_count     = 0;
-        source_position    = 0;
-
-        // Compact retained data before appending the registered input. Keeping
-        // only a fixed low slice would discard high entries when no drain occurs.
-        for (int entry_idx = 0; entry_idx < PUSH_ORDERING_VG_LEN; entry_idx = entry_idx+1) begin
-            source_position = entry_idx + (drain_push_order ? FIFO_CHANNEL : 0);
-            if (source_position < PUSH_ORDERING_VG_LEN) begin
-                if (push_ord_vg_valid_reg[source_position]) begin
-                    push_new_vg_valid[retained_count] = 1'b1;
-                    push_new_vg_data[retained_count*DATA_WIDTH +: DATA_WIDTH] =
-                        push_ord_vg_data_reg[source_position*DATA_WIDTH +: DATA_WIDTH];
-                    retained_count = retained_count+1;
-                end
-            end
-        end
+        append_position[0] = retained_count;
         for (int channel_idx = 0; channel_idx < WRITE_CHANNEL; channel_idx = channel_idx+1) begin
-            if (push_valid_reg[channel_idx]) begin
-                push_new_vg_valid[retained_count] = 1'b1;
-                push_new_vg_data[retained_count*DATA_WIDTH +: DATA_WIDTH] =
-                    push_data_reg[channel_idx*DATA_WIDTH +: DATA_WIDTH];
-                retained_count = retained_count+1;
+            append_position[channel_idx+1] = append_position[channel_idx] + PUSH_COUNT_WIDTH'(push_valid_reg[channel_idx]);
+        end
+
+        // Decode bounded entry positions into fixed data slices. This avoids
+        // serial variable-position writes across a wide packed vector. Incoming
+        // lanes append in order, so the next state is packed without U_VG_PUSH.
+        push_ord_vg_valid_next = retained_valid;
+        push_ord_vg_data_next = '0;
+        for (int entry_idx = 0; entry_idx < PUSH_ORDERING_VG_LEN; entry_idx = entry_idx+1) begin
+            push_ord_vg_data_next[entry_idx*DATA_WIDTH +: DATA_WIDTH] =
+                retained_data[entry_idx*DATA_WIDTH +: DATA_WIDTH] & {DATA_WIDTH{retained_valid[entry_idx]}};
+            for (int channel_idx = 0; channel_idx < WRITE_CHANNEL; channel_idx = channel_idx+1) begin
+                if (push_valid_reg[channel_idx] && (append_position[channel_idx] == PUSH_COUNT_WIDTH'(entry_idx))) begin
+                    push_ord_vg_valid_next[entry_idx] = 1'b1;
+                    push_ord_vg_data_next[entry_idx*DATA_WIDTH +: DATA_WIDTH] =
+                        push_ord_vg_data_next[entry_idx*DATA_WIDTH +: DATA_WIDTH] |
+                        push_data_reg[channel_idx*DATA_WIDTH +: DATA_WIDTH];
+                end
             end
         end
 
@@ -722,16 +725,6 @@ module fifo_multichan #(
             out_new_vg_data[OUT_ORDERING_VG_WIDTH-1:FIFO_DATA_WIDTH] = push_ord_vg_data_reg[FIFO_DATA_WIDTH-1:0];
         end
     end
-
-    valid_gather #(
-        .DATA_WIDTH (DATA_WIDTH),
-        .ENTRIES    (PUSH_ORDERING_VG_LEN)
-    ) U_VG_PUSH (
-        .i_valid (push_new_vg_valid),
-        .i_data  (push_new_vg_data),
-        .o_valid (push_ord_vg_valid_next),
-        .o_data  (push_ord_vg_data_next)
-    );
 
     generate
         if (USE_BRAM == 1'b0) begin

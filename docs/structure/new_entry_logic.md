@@ -119,15 +119,15 @@ NEL은 ISA 명령을 내부 명령 체계로 변경하기 위해 여러 부분�
 
 **Handshake 기반 전송**을 사용합니다.  
 **다른 Handshake 기반 전송과 달리, Get 발생에 조건이 있습니다.**
-1. 디코딩된 명령이 새로운 레지스터를 요구해야 합니다.
-2. 수신되는 Valid가 우선적으로 활성화되어야 하고, 모든 필드가 활성화 되어 있어야 합니다.
-3. "새로운 명령을 Instruction Memory에서 수신"하는 부분의 모든 Valid 필드가 활성화 되어야 합니다.
-4. "내부 체계로 변경된 명령 코드를 IST로 전달"하는 부분에서 모든 Get 필드가 활성화 되어야 합니다.
+1. Stage 1에 유효 명령이 있고 Stage 2가 새 묶음을 받을 수 있어야 합니다. Stage 2가 비어 있거나 기존 묶음이 IST로 전송되면 가능합니다.
+2. PRM의 모든 할당 Valid가 우선 활성화되어야 합니다. PRM 입력 정체 시에는 여유 번호가 있어도 모든 Valid가 내려갑니다.
+3. 이 조건에서 Stage 1 묶음 전체가 진행하며, 유효 명령 중 `newreg && rd != 0`인 채널만 Get을 발생시켜 번호를 소비합니다.
+4. 목적지가 없거나 x0인 명령도 전체 PRM Valid 조건을 따르지만 번호를 소비하지 않습니다. IM 입력 Valid가 모든 채널에서 동시에 켜질 필요는 없습니다.
 
 이는 외부에서 입력되는 명령의 전달 순서를 보장하기 위해 사용됩니다.  
 (순차성이 존재하는 명령 간의 연결을 위해 필수적으로 사용되는 조건들입니다.)  
 
-배포용 소스 코드에서 명칭은 ```i/o_prm_allocate_*``` 입니다.
+gen2 포트 명칭은 `i_prm_phyreg_valid/data`, `o_prm_phyreg_get`입니다.
 
 #### 준비가 완료된 내부 레지스터 번호를 EX에서 수신
 EX에서 처리가 완료된 내부 레지스터에 대해 Ready Flag를 관리하기 위해, 완료된 내부 레지스터 번호를 입력받습니다.  
@@ -157,7 +157,8 @@ NEL은 ISA 명령을 내부 명령 체계로 변경하는 로직을 가지고 �
 
 **Handshake 기반 전송**을 사용합니다.  
 **이 Handshake 신호가 NEL 모듈의 파이프라이닝 시작 신호와 동일합니다.**  
-또한, **"내부 체계로 변경된 명령 코드를 IST로 전달"의 Handshake 부분에서 모든 Get 신호가 활성화 되어 있지 않는다면, 모든 필드에서 Get이 발생하지 않습니다.**
+gen2에서는 Stage 1의 수용 여유와 PRM의 진행 허가를 확인하여 수신합니다. Stage 2에 여유가 있다면 IST가 정지해도 Stage 1은 진행할 수 있습니다.
+분기 뒤 폐기 대상 응답은 `i_fcl_discard`에 따라 소비하되 저장하지 않습니다. IM 응답은 수락된 요청에 대해 프로그램 순서로 전달해야 합니다.
 배포용 소스 코드에서 명칭은 ```i/o_im_inst_*``` 입니다. 
 
 ### 내부 체계로 변경된 명령 코드를 IST로 전달
@@ -182,14 +183,14 @@ NEL은 ISA 명령을 내부 명령 체계로 변경하는 로직을 가지고 �
 덮어 씌워지는 내부 레지스터 번호를 전달합니다.
 
 데이터 구조는 MSB부터 LSB 순서로 아래와 같고,
-|Retired Physical Register Number|
-|-|
-|[```_BITWIDTH_STRUCT_PHYREGS```-1:0]|
+|Retired Physical Register Number|Flow Index|Program Counter|
+|-|-|-|
+|[```_BITWIDTH_STRUCT_PHYREGS```-1:0]|[```_BITWIDTH_STRUCT_FLOW_WINDOWS```-1:0]|[```IS_INST_PC_BITWIDTH```-1:0]|
 
 이 정보는 동시에 STRUCT_DECODE_NEW_INST 만큼 전달할 수 있습니다.  
 
 **Valid 기반 전송**을 사용합니다.  
-배포용 소스 코드에서 명칭은 ```i/o_fcl_unallo_reg_*``` 입니다.
+gen2 포트 명칭은 `o_fcl_retired_phyreg_valid/data`입니다. 0번 레지스터는 반환하지 않습니다.
 
 #### 점프/분기 명령 정보를 FCL로 전달
 점프/분기가 발생하는 명령 정보를 전달합니다. 디코딩 되는 가장 앞선 점프/분기 명령에 대해서만 전달합니다.
@@ -198,6 +199,19 @@ NEL은 ISA 명령을 내부 명령 체계로 변경하는 로직을 가지고 �
 - jump[0]: Immediate 값을 이용한 점프 명령 여부
 - jump_reg[0]: 레지스터 값을 이용한 점프 명령 여부
 - branch[0]: 분기 명령 여부
-- new_pc[```IS_INST_BITWIDTH```-1:0]: 점프/분기로 변경되거나 변경될 수 있는 PC. *단, jump_reg 발생에서는 사용하지 않음*
+- new_pc[```IS_INST_PC_BITWIDTH```-1:0]: 직접 점프의 목표 PC. 조건 분기와 레지스터 점프의 실제 다음 PC는 EX 결과로 결정합니다.
 
-배포용 소스 코드에서 명칭은 ```i/o_fcl_jump_branch_*``` 입니다.
+gen2 포트는 `o_fcl_jumpbranch_valid/data`이며, Data는 MSB부터 `{target_pc, branch, jump_reg, jump}`입니다.
+`o_fcl_jumpbranch_pc`는 목표 주소와 별개로 제어 명령 자신의 `{Flow, PC}`를 전달합니다.
+
+### FCL의 실제 명령 유입 추적
+아래 신호들은 Get 없는 이벤트이며, FCL이 매 사이클 수신합니다.
+
+- `o_fcl_recv_valid`: IM 응답을 소비한 채널.
+- `o_fcl_recv_keep`: 그중 Stage 1에 저장한 채널. 제어 명령 뒤의 응답은 제외합니다.
+- `o_fcl_recv_control`: 해당 응답 묶음에서 제어 명령을 감지했음을 알립니다.
+- `o_fcl_new_inst_valid/pc`: Stage 1 → Stage 2에서 rename을 완료한 모든 명령의 `{Flow, PC}`. 목적지가 없거나 x0인 명령도 포함합니다.
+
+FCL에서 입력되는 `i_fcl_discard`는 제어 명령 뒤에 늦게 도착한 응답을 폐기하도록 지시합니다.
+요청 묶음의 응답 소비와 rename 완료가 모두 확인된 뒤 다음 요청을 진행합니다.
+상세 규약은 [FCL gen2 인터페이스](flow_control_logic.md#gen2-인터페이스-변경)를 따릅니다.

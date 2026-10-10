@@ -10,7 +10,7 @@ Physical Register Mapper는
 
 이 Allocator는 내부 레지스터 번호를 출력하고, 더이상 사용되지 않는 내부 레지스터 번호를 입력받습니다.  
 내부 레지스터의 출력으로 ```_BITWIDTH_STRUCT_PHYREGS```만큼의 너비를 가지고,  
-이 정보는 동시에 STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS만큼 할당하고, STRUCT_UNALLOCATE_PHYREG만큼 반환 할 수 있습니다.   
+이 정보는 동시에 STRUCT_DECODE_NEW_INST만큼 할당하고, STRUCT_UNALLOCATE_PHYREG만큼 반환 할 수 있습니다.
 
 ### Internal Register <-> IST Entry Map Buffer Count Table
 내부 레지스터 번호에 대기중인 명령의 갯수를 저장하는 Register File입니다.
@@ -68,8 +68,12 @@ Register File의 데이터로 **Instruction State Entry 번호**(너비: ```_BIT
 **Handshake 기반 전송**을 사용합니다.  
 가져가기 신호(Get)이 우선 발생하는 다른 Handshake 기반 전송과는 다르게  
 **데이터 유효성 신호(Valid)**가 먼저 발생해야 하는 전송구조입니다.  
-할당 가능한 레지스터가 존재하면 항상 Valid 신호를 출력합니다.   
-배포용 소스 코드에서 명칭은 ```i/o_nel_allocate_*``` 입니다.
+gen2에서는 할당 가능한 레지스터가 존재하고 PRM 입력 처리가 정체되지 않은 경우 Valid를 출력합니다.
+대기열 용량을 초과하는 IST 입력 묶음은 원본 Valid/Data 형태로 보관하고, 묶음 전체를 처리할 수 있을 때까지 기다립니다.
+이때 `input_stall`로 모든 할당 Valid를 내려 NEL의 새 명령 유입과 rename 진행을 멈춥니다.
+목적지 레지스터가 없거나 x0에 쓰는 명령도 이 정지 조건을 따릅니다. 이미 rename된 NEL Stage 2의 후속 입력은 PRM 버퍼가 수용합니다.
+따라서 Valid는 물리 레지스터 재고뿐 아니라 PRM의 진행 허가도 뜻합니다.
+gen2 포트 명칭은 `o_nel_phyreg_valid/data`, `i_nel_phyreg_get`입니다.
 
 #### 반환되는 내부 레지스터 번호를 FCL에서 수신
 더이상 사용되지 않는 내부 레지스터 번호를 입력받습니다.
@@ -84,11 +88,11 @@ Register File의 데이터로 **Instruction State Entry 번호**(너비: ```_BIT
 #### 대기열에 추가할 IST 번호를 IST에서 수신
 아직 준비되지 않은 내부 레지스터를 소스로 사용하여 대기열에 추가해야 하는 명령의 IST 엔트리 번호를 입력받습니다.
 
-데이터는 IST 엔트리 번호이며,  
+데이터는 `{IST 엔트리 번호, 물리 레지스터 번호}`이며(MSB → LSB),
 이 정보는 동시에 STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS 만큼 수신할 수 있습니다.  
 
 **Valid 기반 전송**을 사용합니다.  
-배포용 소스 코드에서 명칭은 ```i/o_ist_unallocate_*``` 입니다.
+gen2 포트 명칭은 `i_ist_wait_phyreg_valid/data`입니다. Get이나 재전송은 없으며, IST가 수락한 명령의 미완료 소스마다 한 번 전달합니다.
 
 ### 완료된 내부 레지스터 번호에 연결된 대기열의 명령들을 전달
 #### 처리가 완료된 내부 레지스터 번호를 WBC에서 수신
@@ -103,8 +107,10 @@ Register File의 데이터로 **Instruction State Entry 번호**(너비: ```_BIT
 #### 준비된 내부 레지스터의 대기열에 저장된 IST 엔트리 번호를 IST로 전달
 Internal Register <-> IST Entry Map Buffer에서 가져온 내부 레지스터 대기열의 IST 엔트리 번호들을 내보냅니다.
 
-데이터는 IST 엔트리 번호들이며,  
+데이터는 `{IST 엔트리 번호, 물리 레지스터 번호}`이며(MSB → LSB),
 이 정보는 동시에 STRUCT_PRM_ENTRY_UPDATE 만큼 전송할 수 있습니다. 
 
-**Handshake 기반 전송**을 사용합니다.  
-배포용 소스 코드에서 명칭은 ```i/o_ist_ready_phyreg_*``` 입니다.
+**Valid 기반 전송**을 사용합니다. Get 포트는 없습니다.
+IST는 RS의 수신 가능 여부와 무관하게 통지를 처리하고, 실행 가능한 엔트리를 pending 상태로 보관합니다.
+PRM은 출력된 통지를 해당 사이클에 소비된 것으로 처리하므로 IST가 통지를 거부하거나 재전송을 요구할 수 없습니다.
+gen2 포트 명칭은 `o_ist_ready_phyreg_valid/data`입니다.

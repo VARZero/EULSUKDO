@@ -33,6 +33,9 @@ module ready_station #(
     parameter int STRUCT_IST_BANKS                     = 1 << $clog2(
         (STRUCT_DECODE_NEW_INST > STRUCT_IST_ISSUE_WIDTH) ? STRUCT_DECODE_NEW_INST : STRUCT_IST_ISSUE_WIDTH),
 
+    // Minimum instruction capacity per RS EX-path FIFO (not data bit width).
+    parameter int STRUCT_RS_FIFO_WIDTH                = 128,
+
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
@@ -134,7 +137,7 @@ module ready_station #(
                 .DATA_WIDTH    (_BITWIDTH_EX_INST_WIDTH),
                 .READ_CHANNEL  (STRUCT_RS_OUT_ENTRY[ex_split_gen]),
                 .WRITE_CHANNEL (INPUT_CHANNEL),
-                .MIN_FIFO_ENTRY(STRUCT_INST_STATE_ENTRIES),
+                .MIN_FIFO_ENTRY(STRUCT_RS_FIFO_WIDTH),
                 .USE_BRAM      (1'b1),
                 .OPTIMIZED_INPUT_GATHER (1'b1)
             ) U_RS_FIFO (

@@ -103,6 +103,12 @@ module physical_register_mapper #(
     localparam int OUTPUT_FIFO_ENTRIES             = (STRUCT_PRM_OUTPUT_FIFO_DEPTH < OUTPUT_PUSH_CHANNELS)?
                                                         OUTPUT_PUSH_CHANNELS : STRUCT_PRM_OUTPUT_FIFO_DEPTH;
     localparam int _BITWIDTH_STRUCT_PRM_ENTRY_BUFFER = $clog2(STRUCT_PRM_ENTRY_BUFFER+1);
+    // Four adjacent PHYREGs form a leaf. Merge only the first return-width
+    // candidates at each level; pad the last group / tree with empty leaves.
+    localparam int RETURN_GROUP_SIZE               = 4;
+    localparam int RETURN_GROUPS                   = (STRUCT_PHYREGS+RETURN_GROUP_SIZE-1)/RETURN_GROUP_SIZE;
+    localparam int RETURN_LEAVES                   = 1 << $clog2(RETURN_GROUPS);
+    localparam int RETURN_COUNT_WIDTH              = $clog2(STRUCT_UNALLOCATE_PHYREG+1);
 
     logic [_BITWIDTH_READY_PRM-1:0]                 wait_input_list       [0:WAIT_INPUTS-1];
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0]            wait_input_phyreg     [0:WAIT_INPUTS-1];
@@ -159,6 +165,9 @@ module physical_register_mapper #(
     logic [STRUCT_UNALLOCATE_PHYREG-1:0]            unallocate_valid;
     wire  [STRUCT_UNALLOCATE_PHYREG-1:0]            unallocate_ready;
     logic [(STRUCT_UNALLOCATE_PHYREG*_BITWIDTH_STRUCT_PHYREGS)-1:0] unallocate_data;
+    logic [RETURN_COUNT_WIDTH-1:0]                 return_tree_count [0:2*RETURN_LEAVES-1];
+    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]           return_tree_data  [0:2*RETURN_LEAVES-1][0:STRUCT_UNALLOCATE_PHYREG-1];
+    logic [RETURN_COUNT_WIDTH:0]                   return_merge_count;
 
     assign o_nel_phyreg_valid         = allocate_valid & {STRUCT_DECODE_NEW_INST{~input_stall}};
     assign o_nel_phyreg_data          = allocate_data;
@@ -171,8 +180,9 @@ module physical_register_mapper #(
     integer idx_drain, drain_scan;
     integer idx_address;
     integer idx_push;
-    integer idx_state, idx_wait, idx_slot, idx_done, idx_allocate, idx_retire;
-    integer counter_base, append_position, updated_count, retire_channel;
+    integer idx_wait, idx_slot, idx_done, idx_allocate, idx_retire;
+    integer idx_return_node, idx_return_group, idx_return_slot, idx_return_lane, return_phyreg;
+    integer counter_base, append_position, updated_count;
     integer drain_count;
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0] target_phyreg;
 
@@ -315,7 +325,6 @@ module physical_register_mapper #(
         counter_base = 0;
         append_position = 0;
         updated_count = 0;
-        retire_channel = 0;
         for (idx_slot = 0; idx_slot < STRUCT_PRM_ENTRY_BUFFER; idx_slot = idx_slot+1)
             mapping_write_valid[idx_slot] = 0;
 
@@ -370,12 +379,49 @@ module physical_register_mapper #(
                 if (target_phyreg != 0) retired_pending_next[target_phyreg] = 1'b1;
             end
         end
-        for (idx_state = 1; idx_state < STRUCT_PHYREGS; idx_state = idx_state+1) begin
-            if (retired_pending[idx_state] && (retire_channel < STRUCT_UNALLOCATE_PHYREG)) begin
-                unallocate_valid[retire_channel] = reset_n;
-                unallocate_data[(_BITWIDTH_STRUCT_PHYREGS*retire_channel) +: _BITWIDTH_STRUCT_PHYREGS] = _BITWIDTH_STRUCT_PHYREGS'(idx_state);
-                if (reset_n && unallocate_ready[retire_channel]) retired_pending_next[idx_state] = 1'b0;
-                retire_channel = retire_channel+1;
+        // Parallel local selection, then balanced merges. No count passes
+        // serially through all PHYREGs. Lower PHYREG numbers still go first.
+        return_phyreg = 0;
+        return_merge_count = 0;
+        for (idx_return_node = 0; idx_return_node < 2*RETURN_LEAVES; idx_return_node = idx_return_node+1) begin
+            return_tree_count[idx_return_node] = 0;
+            for (idx_return_lane = 0; idx_return_lane < STRUCT_UNALLOCATE_PHYREG; idx_return_lane = idx_return_lane+1)
+                return_tree_data[idx_return_node][idx_return_lane] = 0;
+        end
+        for (idx_return_group = 0; idx_return_group < RETURN_GROUPS; idx_return_group = idx_return_group+1) begin
+            for (idx_return_slot = 0; idx_return_slot < RETURN_GROUP_SIZE; idx_return_slot = idx_return_slot+1) begin
+                return_phyreg = idx_return_group*RETURN_GROUP_SIZE+idx_return_slot;
+                if ((return_phyreg > 0) && (return_phyreg < STRUCT_PHYREGS)) begin
+                    if (retired_pending[return_phyreg] &&
+                        (return_tree_count[RETURN_LEAVES+idx_return_group] < STRUCT_UNALLOCATE_PHYREG)) begin
+                        return_tree_data[RETURN_LEAVES+idx_return_group][return_tree_count[RETURN_LEAVES+idx_return_group]] =
+                            _BITWIDTH_STRUCT_PHYREGS'(return_phyreg);
+                        return_tree_count[RETURN_LEAVES+idx_return_group] = return_tree_count[RETURN_LEAVES+idx_return_group]+1'b1;
+                    end
+                end
+            end
+        end
+        for (idx_return_node = RETURN_LEAVES-1; idx_return_node > 0; idx_return_node = idx_return_node-1) begin
+            return_merge_count = {1'b0, return_tree_count[2*idx_return_node]} +
+                                 {1'b0, return_tree_count[2*idx_return_node+1]};
+            if (return_merge_count > STRUCT_UNALLOCATE_PHYREG)
+                return_tree_count[idx_return_node] = RETURN_COUNT_WIDTH'(STRUCT_UNALLOCATE_PHYREG);
+            else return_tree_count[idx_return_node] = RETURN_COUNT_WIDTH'(return_merge_count);
+            for (idx_return_lane = 0; idx_return_lane < STRUCT_UNALLOCATE_PHYREG; idx_return_lane = idx_return_lane+1) begin
+                if (idx_return_lane < return_tree_count[idx_return_node]) begin
+                    if (idx_return_lane < return_tree_count[2*idx_return_node])
+                        return_tree_data[idx_return_node][idx_return_lane] = return_tree_data[2*idx_return_node][idx_return_lane];
+                    else return_tree_data[idx_return_node][idx_return_lane] =
+                        return_tree_data[2*idx_return_node+1][RETURN_COUNT_WIDTH'(idx_return_lane)-return_tree_count[2*idx_return_node]];
+                end
+            end
+        end
+        for (idx_return_lane = 0; idx_return_lane < STRUCT_UNALLOCATE_PHYREG; idx_return_lane = idx_return_lane+1) begin
+            if (idx_return_lane < return_tree_count[1]) begin
+                unallocate_valid[idx_return_lane] = reset_n;
+                unallocate_data[(_BITWIDTH_STRUCT_PHYREGS*idx_return_lane) +: _BITWIDTH_STRUCT_PHYREGS] = return_tree_data[1][idx_return_lane];
+                if (reset_n && unallocate_ready[idx_return_lane])
+                    retired_pending_next[return_tree_data[1][idx_return_lane]] = 1'b0;
             end
         end
     end

@@ -4,6 +4,7 @@ module tb_ready_station #(
     parameter int DECODE = 2,
     parameter int UPDATES = 5,
     parameter int ENTRIES = 128,
+    parameter int RS_FIFO = ENTRIES,
     parameter int ISSUE = 5
 );
     localparam int INPUTS = DECODE+ISSUE;
@@ -18,7 +19,7 @@ module tb_ready_station #(
     logic [4:0] out_valid, out_get;
     logic [5*WIDTH-1:0] out_data;
     typedef logic [WIDTH-1:0] instruction_t;
-    localparam int MODEL_DEPTH = ENTRIES+INPUTS*8+32;
+    localparam int MODEL_DEPTH = RS_FIFO+INPUTS*8+32;
     instruction_t expected[3][MODEL_DEPTH];
     int pending[3];
     int serial = 1, accepted = 0, removed = 0, stalled = 0;
@@ -27,7 +28,8 @@ module tb_ready_station #(
     ready_station #(
         .STRUCT_DECODE_NEW_INST(DECODE), .STRUCT_PRM_ENTRY_UPDATE(UPDATES),
         .STRUCT_IST_ISSUE_WIDTH(ISSUE),
-        .STRUCT_INST_STATE_ENTRIES(ENTRIES)
+        .STRUCT_INST_STATE_ENTRIES(ENTRIES),
+        .STRUCT_RS_FIFO_WIDTH(RS_FIFO)
     ) dut (
         .clk(clk), .reset_n(reset_n),
         .i_ist_ready_inst_valid(in_valid), .o_ist_ready_inst_get(in_get),
@@ -96,7 +98,7 @@ module tb_ready_station #(
     endtask
     task automatic drain;
         in_valid = '0; out_get = '1;
-        for (int t = 0; t < ENTRIES*10+300; t++) begin
+        for (int t = 0; t < RS_FIFO*10+300; t++) begin
             step();
             if (accepted == removed) begin
                 repeat (20) step();
@@ -112,7 +114,7 @@ module tb_ready_station #(
         repeat (3) step(); reset_n = 1;
         // Fill path 0 alone. Paths 1/2 must not accept a mixed bundle while
         // path 0 blocks the global IST acknowledgement.
-        for (int t = 0; t < ENTRIES*3+100; t++) begin
+        for (int t = 0; t < RS_FIFO*3+100; t++) begin
             new_bundle(0, 0); step();
         end
         if (|in_get) $fatal(1, "Path 0 failed to backpressure");

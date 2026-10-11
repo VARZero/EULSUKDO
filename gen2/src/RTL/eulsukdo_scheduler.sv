@@ -33,6 +33,9 @@ module eulsukdo_scheduler #(
     parameter int STRUCT_IST_BANKS                     = 1 << $clog2(
         (STRUCT_DECODE_NEW_INST > STRUCT_IST_ISSUE_WIDTH) ? STRUCT_DECODE_NEW_INST : STRUCT_IST_ISSUE_WIDTH),
 
+    // Minimum instruction capacity per RS EX-path FIFO (not data bit width).
+    parameter int STRUCT_RS_FIFO_WIDTH                = 128,
+
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
@@ -334,6 +337,7 @@ module eulsukdo_scheduler #(
         .STRUCT_PHYREGS(STRUCT_PHYREGS),
         .STRUCT_EX_PATH(STRUCT_EX_PATH),
         .STRUCT_RS_OUT_ENTRY(STRUCT_RS_OUT_ENTRY),
+        .STRUCT_RS_FIFO_WIDTH(STRUCT_RS_FIFO_WIDTH),
         .STRUCT_EX_CORES(STRUCT_EX_CORES),
         .STRUCT_EX_OUT_RESULT(STRUCT_EX_OUT_RESULT),
         .STRUCT_EX_OUT_RESULT_SUM(STRUCT_EX_OUT_RESULT_SUM),

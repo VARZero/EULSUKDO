@@ -67,6 +67,11 @@ module tb_instruction_state_table #(
             if ((|nel_get) || (|wait_valid) || (|rs_valid)) $fatal(1, "Transfer during reset");
         end
         else begin
+            // Fast admission must match the original sorted-offer condition,
+            // including bypass backpressure and partial downstream Get.
+            if (nel_get !== {DECODE{(&dut.allocate_valid) &&
+                !(|(dut.bypass_valid & ~rs_get[ISSUE +: DECODE]))}})
+                $fatal(1, "IST admission changed relative to allocated offers");
             // The RAM port free-runs on its held address when idle. Only
             // qualified reads/responses must be protected from same-row writes.
             for (int b = 0; b < BANKS; b++) begin

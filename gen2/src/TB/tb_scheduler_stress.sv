@@ -12,6 +12,7 @@ module tb_scheduler_stress #(
     parameter int EX_CORES = 5,
     parameter int ISSUE = EX_CORES,
     parameter int BANKS = 1 << $clog2(DECODE > ISSUE ? DECODE : ISSUE),
+    parameter int RS_FIFO = IST_ENTRIES,
     parameter int COUNT = 384
 );
     localparam int FLOW_W = WINDOWS > 1 ? $clog2(WINDOWS) : 1;
@@ -119,7 +120,7 @@ module tb_scheduler_stress #(
     eulsukdo_scheduler #(
         .STRUCT_DECODE_NEW_INST(DECODE), .STRUCT_FLOW_WINDOWS(WINDOWS),
         .STRUCT_FLOW_PC_MAX_RANGE(RANGE), .STRUCT_INST_STATE_ENTRIES(IST_ENTRIES),
-        .STRUCT_PRM_ENTRY_UPDATE(UPDATES),
+        .STRUCT_PRM_ENTRY_UPDATE(UPDATES), .STRUCT_RS_FIFO_WIDTH(RS_FIFO),
         .STRUCT_EX_CORES(EX_CORES), .STRUCT_RS_OUT_ENTRY('{1, EX_CORES-2, 1}),
         .STRUCT_EX_OUT_RESULT('{default: 1}), .STRUCT_EX_OUT_RESULT_SUM(EX_CORES),
         .STRUCT_IST_ISSUE_WIDTH(ISSUE), .STRUCT_IST_BANKS(BANKS)

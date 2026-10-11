@@ -27,6 +27,10 @@ gen2는 별도 입력 gather 없이 원본 데이터를 각 EX FIFO에 직접 �
 EX Path는 개념적인 Micro-Op의 일부이고, RTL에서는 분류 편의를 위해 별도 필드로 표현합니다. 소스 레지스터 값은 이 인터페이스에 포함되지 않습니다.
 
 ### EX Path FIFO
+`STRUCT_RS_FIFO_WIDTH`는 각 EX Path FIFO의 최소 명령 저장 개수이며, 데이터 비트 폭이 아닙니다. 기본값은 128이고 `STRUCT_INST_STATE_ENTRIES`와 독립적으로 설정합니다. 최상위 `eulsukdo_scheduler`에서 RS를 거쳐 `fifo_multichan.MIN_FIFO_ENTRY`로 전달됩니다. 1 이상의 값을 사용합니다.
+
+내부 저장 워드는 `max(입력 채널 수, 출력 채널 수)`개의 명령을 묶으므로 깊이는 올림 계산됩니다. 기본 입출력 구성에서는 128 설정이 19워드(133명령), 32 설정이 5워드(35명령)가 됩니다. 입력·정렬·출력 버퍼는 별도이며 이 파라미터로 줄어들지 않습니다. Full 시 Get을 내리고 IST가 대기하므로 깊이를 줄여도 전달 계약은 유지되지만, 대기가 더 자주 발생할 수 있습니다. FPGA BRAM의 할당 단위 때문에 깊이 감소가 BRAM 개수 감소로 바로 이어지지는 않습니다.
+
 특정한 EX Path로 향하는 명령이 버퍼링 되는 FIFO 입니다.  
 gen2는 공통 `fifo_multichan`을 사용합니다. RS에서 검증한 출력 gather 최적화를 공통 FIFO의 기본 동작으로 적용하여 RS, PRM 할당기, FCL이 함께 사용합니다. 외부 입력 Valid 위치는 임의여도 되며, 입력 정렬부가 먼저 연속된 데이터로 모읍니다.
 

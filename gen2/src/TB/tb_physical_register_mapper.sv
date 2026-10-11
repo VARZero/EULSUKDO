@@ -45,12 +45,14 @@ module tb_physical_register_mapper #(
     bit waiting[IST_ENTRIES][PHYREGS];
     int outstanding[PHYREGS], allocations[PHYREGS];
     int notifications[IST_ENTRIES], allocation_total, notification_total;
+    int output_stalls, concurrent_pushes;
     int phy, entry_num;
     bit duplicate;
 
     always @(posedge clk) begin
         if (!reset_n) begin
             allocation_total = 0; notification_total = 0;
+            output_stalls = 0; concurrent_pushes = 0;
             for (int p = 0; p < PHYREGS; p++) begin
                 owned[p] = 0; retired[p] = 0; completed[p] = (p == 0);
                 outstanding[p] = 0; allocations[p] = 0;
@@ -60,6 +62,8 @@ module tb_physical_register_mapper #(
             if ((|alloc_valid) || (|ready_valid)) $fatal(1, "PRM transfer during reset");
         end
         else begin
+            if (dut.drain_valid && !( &dut.output_push_ready )) output_stalls++;
+            if (dut.drain_fire && dut.input_fire && (|dut.wait_ready_valid)) concurrent_pushes++;
             // Capture one obligation per unique {IST, PHYREG} pair per bundle.
             for (int w = 0; w < INPUTS; w++) begin
                 if (wait_valid[w]) begin
@@ -92,6 +96,7 @@ module tb_physical_register_mapper #(
                     phy = int'(retire_data[r*PHY_W +: PHY_W]);
                     if (phy != 0) begin
                         if (!owned[phy] || retired[phy]) $fatal(1, "Invalid test retirement");
+                        if (outstanding[phy] != 0) $fatal(1, "Test violated FCL return contract PHY=%0d", phy);
                         retired[phy] = 1;
                     end
                 end
@@ -188,16 +193,17 @@ module tb_physical_register_mapper #(
         #1;
         if ((|alloc_valid) || !(|dut.allocate_valid)) $fatal(1, "PRM did not mask available allocator offers");
         before_stall = allocation_total; alloc_get = '1;
-        // FCL uses a pulse. Retirement must remain pending until all input,
-        // mapping and output obligations belonging to this lifetime are delivered.
-        retire_valid[0] = 1; retire_data[0 +: PHY_W] = PHY_W'(1);
-        step(); retire_valid = '0;
+        // FCL cannot retire a register while a reader is still waiting for it.
+        // Keep return traffic independent of this blocked input bundle.
         done(2); done(3);
         repeat (5) step();
         if ((allocation_total != before_stall) || (notification_total != 0)) $fatal(1, "Blocked bundle was partially consumed");
 
         done(1);
         await_notifications(8);
+        // Emulate the real FCL contract: return only after all readers complete.
+        retire_valid[0] = 1; retire_data[0 +: PHY_W] = PHY_W'(1);
+        step(); retire_valid = '0;
         await_allocations((PHYREGS-1)+(PHYREGS-4)+1);
         alloc_get = '0;
         for (int s = 0; s < 8; s++) if (notifications[s] != 1) $fatal(1, "Lost/duplicate buffered request");
@@ -208,10 +214,35 @@ module tb_physical_register_mapper #(
         repeat (8) step();
         if (notification_total != 8) $fatal(1, "Old readiness leaked into new lifetime");
         done(1); await_notifications(9);
+
+        // Many completed rows must survive output FIFO backpressure. Each
+        // {IST, PHYREG} pair is unique; several PHYREGs may notify the same IST
+        // in one cycle, as supported by the real IST's merge logic.
+        for (int p = 4; p < PHYREGS; p++) begin
+            for (int s = 0; s < 4; s++) begin
+                pair(INPUTS-1, s, p);
+                step(); wait_valid = '0; step();
+            end
+        end
+        for (int p = 4; p < PHYREGS; p += DONE) begin
+            done_valid = '0; done_data = '0;
+            for (int d = 0; d < DONE; d++) begin
+                if (p+d < PHYREGS) begin
+                    done_valid[d] = 1;
+                    done_data[d*PHY_W +: PHY_W] = PHY_W'(p+d);
+                end
+            end
+            step();
+        end
+        done_valid = '0;
+        await_notifications(9+4*(PHYREGS-4));
+        if (concurrent_pushes == 0) $fatal(1, "No concurrent row/buffer completion coverage");
+        if (UPDATES == 1 && PHYREGS >= 32 && output_stalls == 0)
+            $fatal(1, "No output FIFO backpressure coverage");
         repeat (10) step();
         for (int p = 0; p < PHYREGS; p++) if (outstanding[p] != 0) $fatal(1, "Outstanding notification remains");
 
-        $display("PASS PRM D=%0d U=%0d PHYREGS=%0d", DECODE, UPDATES, PHYREGS);
+        $display("PASS PRM D=%0d U=%0d PHYREGS=%0d output_stalls=%0d concurrent_pushes=%0d", DECODE, UPDATES, PHYREGS, output_stalls, concurrent_pushes);
         $finish;
     end
     initial begin

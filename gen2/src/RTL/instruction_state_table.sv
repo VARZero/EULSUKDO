@@ -27,6 +27,12 @@ module instruction_state_table #(
     parameter int STRUCT_FLOW_WINDOWS                   = 8,
     parameter int STRUCT_FLOW_PC_MAX_RANGE              = 16,
 
+    // Wakeup bandwidth, stored-instruction issue bandwidth and SRAM banking
+    // are independent. Banks use low entry-number bits (power of two).
+    parameter int STRUCT_IST_ISSUE_WIDTH               = STRUCT_EX_CORES,
+    parameter int STRUCT_IST_BANKS                     = 1 << $clog2(
+        (STRUCT_DECODE_NEW_INST > STRUCT_IST_ISSUE_WIDTH) ? STRUCT_DECODE_NEW_INST : STRUCT_IST_ISSUE_WIDTH),
+
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
@@ -76,9 +82,9 @@ module instruction_state_table #(
     input  logic [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]                              i_prm_ready_phyreg_data,
     
     // Executable (All phyreg in instruction are ready) Internal Instruction Output (RS)
-    output logic [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               o_rs_ready_inst_valid,
-    input  logic [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               i_rs_ready_inst_get,
-    output logic [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)*_BITWIDTH_EX_INST_WIDTH)-1:0]     o_rs_ready_inst_data,
+    output logic [(STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH)-1:0]                               o_rs_ready_inst_valid,
+    input  logic [(STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH)-1:0]                               i_rs_ready_inst_get,
+    output logic [((STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH)*_BITWIDTH_EX_INST_WIDTH)-1:0]     o_rs_ready_inst_data,
 
     // Wait Physical Registers Output (PRM)
     output logic [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]                                      o_prm_wait_phyreg_valid,
@@ -107,9 +113,6 @@ module instruction_state_table #(
     logic [_BITWIDTH_EX_INST_WIDTH-1:0]                        target_ist_entry        [0:STRUCT_DECODE_NEW_INST-1];
     logic [(_BITWIDTH_STRUCT_PHYREGS * IS_INST_OPERANDS)-1:0]  target_phyreg_source    [0:STRUCT_DECODE_NEW_INST-1];
     logic [IS_INST_OPERANDS-1:0]                               target_source_ready     [0:STRUCT_DECODE_NEW_INST-1];
-    logic [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_EX_INST_WIDTH))-1:0]
-                                                               nel_new_inst_data;
-
     logic [STRUCT_DECODE_NEW_INST-1:0]                         allocate_valid;
     logic [_BITWIDTH_ALLOC_IST_NUM-1:0]                        allocate_alloc_num_out;
     logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0]            allocate_alloc_num_list [0:STRUCT_DECODE_NEW_INST-1];
@@ -131,33 +134,90 @@ module instruction_state_table #(
     logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        ready_prm_update        [0:IS_INST_OPERANDS-1];
     logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        last_ready              [0:IS_INST_OPERANDS-1];
     logic [IS_INST_OPERANDS-1:0]                               ready_check_section;
-    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        ready_prm_rs;
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0]                       ready_check_phyreg_target;
 
     logic                                                     nel_accept_enable;
     logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        prm_update_write;
-    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        unallocate_ready;
     logic [STRUCT_INST_STATE_ENTRIES-1:0]                     active_entries, active_entries_next;
     logic [STRUCT_INST_STATE_ENTRIES-1:0]                     pending_entries, pending_entries_next;
-    logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0]           issue_start, issue_start_next;
-    logic [(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_STRUCT_INST_STATE_ENTRIES)-1:0]
-                                                               issue_istnum_all;
-    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        issue_hold, issue_hold_next;
-    logic [(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_STRUCT_INST_STATE_ENTRIES)-1:0]
-                                                               issue_hold_num, issue_hold_num_next;
-    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        issue_fire, return_pending, return_pending_next;
-    logic [(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_STRUCT_INST_STATE_ENTRIES)-1:0]
-                                                               return_num, return_num_next, unallocate_num;
-    logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        unallocate_valid;
+    localparam int BANK_BITS = $clog2(STRUCT_IST_BANKS);
+    localparam int BANK_WIDTH = (BANK_BITS > 0) ? BANK_BITS : 1;
+    localparam int BANK_ROWS = (STRUCT_INST_STATE_ENTRIES+STRUCT_IST_BANKS-1)/STRUCT_IST_BANKS;
+    localparam int ROW_WIDTH = (BANK_ROWS > 1) ? $clog2(BANK_ROWS) : 1;
+    localparam int ALLOC_WIDTH = STRUCT_DECODE_NEW_INST*(_BITWIDTH_STRUCT_INST_STATE_ENTRIES+1);
 
+    logic [STRUCT_INST_STATE_ENTRIES-1:0] queued_entries, queued_entries_next;
+    logic [BANK_WIDTH-1:0] alloc_start, alloc_start_next, response_start, response_start_next;
+    logic [STRUCT_IST_BANKS-1:0] bank_write, bank_read, bank_response_valid, bank_response_valid_next, bank_take;
+    logic [ROW_WIDTH-1:0] bank_write_row [STRUCT_IST_BANKS];
+    logic [ROW_WIDTH-1:0] bank_read_row [STRUCT_IST_BANKS];
+    logic [_BITWIDTH_EX_INST_WIDTH-1:0] bank_write_data [STRUCT_IST_BANKS];
+    wire [_BITWIDTH_EX_INST_WIDTH-1:0] bank_read_data [STRUCT_IST_BANKS];
+    logic [ROW_WIDTH-1:0] bank_response_row [STRUCT_IST_BANKS], bank_response_row_next [STRUCT_IST_BANKS];
+    // Two-entry, one-enqueue/one-dequeue address FIFO per bank.
+    logic [1:0] request_count [STRUCT_IST_BANKS], request_count_next [STRUCT_IST_BANKS];
+    logic [ROW_WIDTH-1:0] request_row [STRUCT_IST_BANKS][2], request_row_next [STRUCT_IST_BANKS][2];
+    logic [ROW_WIDTH-1:0] pending_start [STRUCT_IST_BANKS], pending_start_next [STRUCT_IST_BANKS];
+    logic [STRUCT_IST_ISSUE_WIDTH-1:0] issue_valid, issue_valid_next;
+    logic [STRUCT_IST_ISSUE_WIDTH*_BITWIDTH_EX_INST_WIDTH-1:0] issue_data, issue_data_next;
+    logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0] issue_num [STRUCT_IST_ISSUE_WIDTH], issue_num_next [STRUCT_IST_ISSUE_WIDTH];
     integer idx_internal_inst, idx_rs, idx_update, idx_entry;
-    integer issue_entry, issue_channel, idx_issue;
+    integer selected_bank, candidate_bank, selected_row, candidate_row, entry_num;
+
+    initial begin
+        if (STRUCT_IST_ISSUE_WIDTH < 1 || STRUCT_IST_BANKS < STRUCT_DECODE_NEW_INST ||
+            (STRUCT_IST_BANKS & (STRUCT_IST_BANKS-1)) != 0 || STRUCT_INST_STATE_ENTRIES < STRUCT_DECODE_NEW_INST)
+            $fatal(1, "IST requires positive issue width, power-of-two banks >= decode, entries >= decode");
+    end
+
+    // Offers depend only on registered occupancy, not on NEL Valid/data/Get.
+    // Prefer banks with more free rows; rotate equal-capacity choices. This
+    // balances partial/sparse allocations and masks padding in the final row.
+    function automatic logic [ALLOC_WIDTH-1:0] allocation_offers(
+        input logic [STRUCT_INST_STATE_ENTRIES-1:0] active,
+        input logic [BANK_WIDTH-1:0] start_bank
+    );
+        int free_count [STRUCT_IST_BANKS];
+        int free_row [STRUCT_IST_BANKS];
+        bit used [STRUCT_IST_BANKS];
+        int chosen, candidate;
+        logic [ALLOC_WIDTH-1:0] result;
+        result = '0;
+        for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
+            free_count[b] = 0; free_row[b] = 0; used[b] = 0;
+            for (int r = BANK_ROWS-1; r >= 0; r--) begin
+                if ((r*STRUCT_IST_BANKS+b) < STRUCT_INST_STATE_ENTRIES) begin
+                    if (!active[r*STRUCT_IST_BANKS+b]) begin
+                        free_count[b]++; free_row[b] = r;
+                    end
+                end
+            end
+        end
+        for (int lane = 0; lane < STRUCT_DECODE_NEW_INST; lane++) begin
+            chosen = -1;
+            for (int offset = 0; offset < STRUCT_IST_BANKS; offset++) begin
+                candidate = (int'(start_bank)+offset) % STRUCT_IST_BANKS;
+                if (!used[candidate] && free_count[candidate] != 0) begin
+                    if (chosen < 0) chosen = candidate;
+                    else if (free_count[candidate] > free_count[chosen]) chosen = candidate;
+                end
+            end
+            if (chosen >= 0) begin
+                used[chosen] = 1;
+                result[_BITWIDTH_ALLOC_IST_NUM+lane] = 1;
+                result[lane*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
+                    _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(free_row[chosen]*STRUCT_IST_BANKS+chosen);
+            end
+        end
+        return result;
+    endfunction
+    assign {allocate_valid, allocate_alloc_num_out} = allocation_offers(active_entries, alloc_start);
 
     // Admission reserves a complete bundle in the ready bypass register. Keeping
     // this wiring outside the NEL-consuming block also makes that independence
     // visible to simulators when NEL gates its Valid with our Get.
     assign nel_accept_enable = reset_n &&
-        (&allocate_valid) && !(|(bypass_valid & ~i_rs_ready_inst_get[STRUCT_PRM_ENTRY_UPDATE +: STRUCT_DECODE_NEW_INST]));
+        (&allocate_valid) && !(|(bypass_valid & ~i_rs_ready_inst_get[STRUCT_IST_ISSUE_WIDTH +: STRUCT_DECODE_NEW_INST]));
     assign o_nel_new_inst_get = {STRUCT_DECODE_NEW_INST{nel_accept_enable}};
 
     // PRM read addresses are pure input wiring, independent of the ready checker.
@@ -175,49 +235,57 @@ module instruction_state_table #(
 
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
-            active_entries  <= '0;
-            pending_entries <= '0;
-            issue_start     <= '0;
-            bypass_valid    <= '0;
-            bypass_data     <= '0;
-            issue_hold      <= '0;
-            issue_hold_num  <= '0;
-            return_pending  <= '0;
-            return_num      <= '0;
+            active_entries <= '0; pending_entries <= '0; queued_entries <= '0;
+            bypass_valid <= '0; bypass_data <= '0;
+            alloc_start <= '0; response_start <= '0;
+            bank_response_valid <= '0;
+            issue_valid <= '0; issue_data <= '0;
+            for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
+                bank_response_row[b] <= '0; request_count[b] <= '0; pending_start[b] <= '0;
+                for (int q = 0; q < 2; q++) request_row[b][q] <= '0;
+            end
+            for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) issue_num[lane] <= '0;
         end
         else begin
-            active_entries  <= active_entries_next;
-            pending_entries <= pending_entries_next;
-            issue_start     <= issue_start_next;
-            bypass_valid    <= bypass_valid_next;
-            bypass_data     <= bypass_data_next;
-            issue_hold      <= issue_hold_next;
-            issue_hold_num  <= issue_hold_num_next;
-            return_pending  <= return_pending_next;
-            return_num      <= return_num_next;
+            active_entries <= active_entries_next; pending_entries <= pending_entries_next;
+            queued_entries <= queued_entries_next;
+            bypass_valid <= bypass_valid_next; bypass_data <= bypass_data_next;
+            alloc_start <= alloc_start_next; response_start <= response_start_next;
+            bank_response_valid <= bank_response_valid_next;
+            issue_valid <= issue_valid_next; issue_data <= issue_data_next;
+            for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
+                bank_response_row[b] <= bank_response_row_next[b];
+                request_count[b] <= request_count_next[b]; pending_start[b] <= pending_start_next[b];
+                for (int q = 0; q < 2; q++) request_row[b][q] <= request_row_next[b][q];
+            end
+            for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) issue_num[lane] <= issue_num_next[lane];
         end
     end
 
     always_comb begin
-        allocate_is_entries = '0; ready_is_entries = '0; ready_prm_rs = '0;
+        allocate_is_entries = '0; ready_is_entries = '0;
         active_entries_next  = active_entries;
         pending_entries_next = pending_entries;
-        issue_start_next     = issue_start;
-        issue_istnum_all     = '0;
-        issue_entry          = 0;
-        issue_channel        = 0;
         prm_update_write     = '0;
         ready_check_section  = '0;
         ready_check_phyreg_target = '0;
-        bypass_valid_next = bypass_valid & ~i_rs_ready_inst_get[STRUCT_PRM_ENTRY_UPDATE +: STRUCT_DECODE_NEW_INST];
+        bypass_valid_next = bypass_valid & ~i_rs_ready_inst_get[STRUCT_IST_ISSUE_WIDTH +: STRUCT_DECODE_NEW_INST];
         bypass_data_next = bypass_data;
-        issue_hold_next = '0;
-        issue_hold_num_next = issue_hold_num;
-        issue_fire = '0;
-        return_pending_next = return_pending & ~unallocate_ready;
-        return_num_next = return_num;
-        unallocate_valid = '0;
-        unallocate_num = return_num;
+        queued_entries_next = queued_entries;
+        alloc_start_next = alloc_start; response_start_next = response_start;
+        bank_write = '0; bank_read = '0; bank_take = '0;
+        bank_response_valid_next = bank_response_valid;
+        issue_valid_next = issue_valid & ~i_rs_ready_inst_get[STRUCT_IST_ISSUE_WIDTH-1:0];
+        issue_data_next = issue_data;
+        selected_bank = -1; candidate_bank = 0; selected_row = -1; candidate_row = 0; entry_num = 0;
+        for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
+            bank_write_row[b] = '0; bank_write_data[b] = '0;
+            bank_read_row[b] = bank_response_row[b];
+            bank_response_row_next[b] = bank_response_row[b];
+            request_count_next[b] = request_count[b]; pending_start_next[b] = pending_start[b];
+            for (int q = 0; q < 2; q++) request_row_next[b][q] = request_row[b][q];
+        end
+        for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) issue_num_next[lane] = issue_num[lane];
 
         for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
             ready_prm_update[idx_rs] = last_ready[idx_rs];
@@ -247,16 +315,19 @@ module instruction_state_table #(
             if (allocate_is_entries[idx_internal_inst]) begin
                 active_entries_next[allocate_alloc_num_list[idx_internal_inst]]  = 1'b1;
                 pending_entries_next[allocate_alloc_num_list[idx_internal_inst]] = 1'b0;
+                queued_entries_next[allocate_alloc_num_list[idx_internal_inst]] = 1'b0;
+                bank_write[int'(allocate_alloc_num_list[idx_internal_inst]) % STRUCT_IST_BANKS] = 1'b1;
+                bank_write_row[int'(allocate_alloc_num_list[idx_internal_inst]) % STRUCT_IST_BANKS] =
+                    ROW_WIDTH'(allocate_alloc_num_list[idx_internal_inst] >> BANK_BITS);
+                bank_write_data[int'(allocate_alloc_num_list[idx_internal_inst]) % STRUCT_IST_BANKS] = target_ist_entry[idx_internal_inst];
+                alloc_start_next = BANK_WIDTH'((int'(allocate_alloc_num_list[idx_internal_inst])+1) % STRUCT_IST_BANKS);
             end
-
-            nel_new_inst_data[(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst) +: _BITWIDTH_EX_INST_WIDTH] = 
-                target_ist_entry[idx_internal_inst];
 
             if (ready_is_entries[idx_internal_inst]) begin
                 bypass_valid_next[idx_internal_inst] = 1'b1;
                 bypass_data_next[idx_internal_inst*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] = target_ist_entry[idx_internal_inst];
             end
-            o_rs_ready_inst_data[(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_EX_INST_WIDTH)+(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst)
+            o_rs_ready_inst_data[(STRUCT_IST_ISSUE_WIDTH*_BITWIDTH_EX_INST_WIDTH)+(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst)
                 +: _BITWIDTH_EX_INST_WIDTH] = bypass_data[idx_internal_inst*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH];
         end
 
@@ -309,72 +380,88 @@ module instruction_state_table #(
             end
 
             // PRM sends pulses without Get. Retain completions even if RS stalls.
-            if (prm_update_write[idx_internal_inst] && (&ready_check_section)) begin
+            if (prm_update_write[idx_internal_inst] && (&ready_check_section) &&
+                !queued_entries[prm_update_istnum[idx_internal_inst]]) begin
                 pending_entries_next[prm_update_istnum[idx_internal_inst]] = 1'b1;
             end
         end
 
-        // Registered pending entries issue from the following cycle. Round-robin
-        // selection prevents repeated low-index reuse from starving older entries.
-        // Select a new batch only when the previous offers have all transferred.
-        // Partial Get must not compact or replace the remaining lane payloads.
-        for (idx_entry = 0; idx_entry < STRUCT_INST_STATE_ENTRIES; idx_entry = idx_entry+1) begin
-            issue_entry = int'(issue_start) + idx_entry;
-            if (issue_entry >= STRUCT_INST_STATE_ENTRIES) issue_entry = issue_entry - STRUCT_INST_STATE_ENTRIES;
-            if (!(|issue_hold) && pending_entries[issue_entry] && (issue_channel < STRUCT_PRM_ENTRY_UPDATE)) begin
-                issue_istnum_all[(issue_channel*_BITWIDTH_STRUCT_INST_STATE_ENTRIES) +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
-                    _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(issue_entry);
-                ready_prm_rs[issue_channel] = reset_n && !return_pending[issue_channel];
-                issue_channel = issue_channel+1;
+        // Each output lane is an elastic holding register. Partial Get only
+        // replaces accepted lanes; bank arbitration is round-robin and narrow.
+        for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) begin
+            if (issue_valid[lane] && i_rs_ready_inst_get[lane]) begin
+                active_entries_next[issue_num[lane]] = 1'b0;
+                pending_entries_next[issue_num[lane]] = 1'b0;
+                queued_entries_next[issue_num[lane]] = 1'b0;
             end
-        end
-
-        if (|issue_hold) begin
-            issue_istnum_all = issue_hold_num;
-            ready_prm_rs = issue_hold & {STRUCT_PRM_ENTRY_UPDATE{reset_n}};
-        end
-        issue_fire = ready_prm_rs & i_rs_ready_inst_get[STRUCT_PRM_ENTRY_UPDATE-1:0];
-        issue_hold_next = ready_prm_rs & ~i_rs_ready_inst_get[STRUCT_PRM_ENTRY_UPDATE-1:0];
-        issue_hold_num_next = issue_istnum_all;
-        for (idx_issue = 0; idx_issue < STRUCT_PRM_ENTRY_UPDATE; idx_issue = idx_issue+1) begin
-            // One return slot per lane decouples allocator backpressure from
-            // an already advertised RS offer. IDs cannot be reused until returned.
-            unallocate_valid[idx_issue] = reset_n && (return_pending[idx_issue] || issue_fire[idx_issue]);
-            if (!return_pending[idx_issue])
-                unallocate_num[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
-                    issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
-            if (issue_fire[idx_issue]) begin
-                active_entries_next[issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES]] = 1'b0;
-                pending_entries_next[issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES]] = 1'b0;
-                issue_start_next = (int'(issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES]) == STRUCT_INST_STATE_ENTRIES-1)? '0 :
-                    issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] + 1'b1;
-                if (!unallocate_ready[idx_issue]) begin
-                    return_pending_next[idx_issue] = 1'b1;
-                    return_num_next[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
-                        issue_istnum_all[idx_issue*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
+            if (!issue_valid_next[lane]) begin
+                selected_bank = -1;
+                for (int offset = 0; offset < STRUCT_IST_BANKS; offset++) begin
+                    candidate_bank = (int'(response_start)+offset) % STRUCT_IST_BANKS;
+                    if (selected_bank < 0 && bank_response_valid[candidate_bank] && !bank_take[candidate_bank])
+                        selected_bank = candidate_bank;
+                end
+                if (selected_bank >= 0) begin
+                    bank_take[selected_bank] = 1'b1;
+                    issue_valid_next[lane] = 1'b1;
+                    issue_data_next[lane*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] = bank_read_data[selected_bank];
+                    issue_num_next[lane] = _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(
+                        int'(bank_response_row[selected_bank])*STRUCT_IST_BANKS+selected_bank);
+                    response_start_next = BANK_WIDTH'((selected_bank+1) % STRUCT_IST_BANKS);
                 end
             end
         end
-        o_rs_ready_inst_valid = {bypass_valid & {STRUCT_DECODE_NEW_INST{reset_n}}, ready_prm_rs};
+
+        for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
+            bank_response_valid_next[b] = bank_response_valid[b] && !bank_take[b];
+            // Reserve the bank response register before launching a synchronous
+            // read. Holding its address preserves data during downstream stalls.
+            bank_read[b] = reset_n && request_count[b] != 0 && !bank_response_valid_next[b];
+            if (bank_read[b]) begin
+                bank_read_row[b] = request_row[b][0];
+                bank_response_row_next[b] = request_row[b][0];
+                bank_response_valid_next[b] = 1'b1;
+                request_row_next[b][0] = request_row[b][1];
+                request_count_next[b] = request_count[b]-1'b1;
+            end
+            // PRM pulses accumulate in pending even when the address FIFO is
+            // full. queued remains set through SRAM response and RS acceptance.
+            selected_row = -1;
+            for (int offset = 0; offset < BANK_ROWS; offset++) begin
+                candidate_row = int'(pending_start[b])+offset;
+                if (candidate_row >= BANK_ROWS) candidate_row = candidate_row-BANK_ROWS;
+                entry_num = candidate_row*STRUCT_IST_BANKS+b;
+                if (entry_num < STRUCT_INST_STATE_ENTRIES) begin
+                    if (selected_row < 0 && pending_entries[entry_num] && !queued_entries[entry_num])
+                        selected_row = candidate_row;
+                end
+            end
+            if (reset_n && selected_row >= 0 && request_count_next[b] < 2) begin
+                request_row_next[b][request_count_next[b][0]] = ROW_WIDTH'(selected_row);
+                request_count_next[b] = request_count_next[b]+1'b1;
+                queued_entries_next[selected_row*STRUCT_IST_BANKS+b] = 1'b1;
+                pending_entries_next[selected_row*STRUCT_IST_BANKS+b] = 1'b0;
+                pending_start_next[b] = (selected_row == BANK_ROWS-1) ? '0 : ROW_WIDTH'(selected_row+1);
+            end
+        end
+        o_rs_ready_inst_valid = {bypass_valid, issue_valid} & {(STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH){reset_n}};
+        o_rs_ready_inst_data[STRUCT_IST_ISSUE_WIDTH*_BITWIDTH_EX_INST_WIDTH-1:0] = issue_data;
     end
 
-    allocator #(
-        .ENTRIES            (STRUCT_INST_STATE_ENTRIES),
-        .START_VALUE        (0),
-        .ALLOCATE_CHANNEL   (STRUCT_DECODE_NEW_INST),
-        .UNALLOCATE_CHANNEL (STRUCT_PRM_ENTRY_UPDATE),
-        .USE_BRAM           (1'b0)
-    ) U_IST_ENTRY_ALLOCATOR (
-        .clk                (clk),
-        .reset_n            (reset_n),
-        .i_flush            (1'b0),
-        .i_unallocate       (unallocate_valid),
-        .o_unallocate_ready (unallocate_ready),
-        .i_unallocate_data  (unallocate_num),
-        .i_allocate         (allocate_is_entries),
-        .o_allocate_valid   (allocate_valid),
-        .o_allocate_data    (allocate_alloc_num_out)
-    );
+    // One independent write and one synchronous read per bank. Memory contents
+    // have no reset/flush; active/queued/response valid bits own their lifetime.
+    // bram_custom is also the SRAM macro replacement boundary in the ASIC flow.
+    generate
+        for (genvar b = 0; b < STRUCT_IST_BANKS; b++) begin : G_INSTRUCTION_BANK
+            bram_custom #(
+                .DATA_WIDTH(_BITWIDTH_EX_INST_WIDTH), .ENTRIES(BANK_ROWS)
+            ) U_SRAM (
+                .clk(clk), .i_write_en(bank_write[b]),
+                .i_write_addr(bank_write_row[b]), .i_write_data(bank_write_data[b]),
+                .i_read_addr(bank_read_row[b]), .o_read_data(bank_read_data[b])
+            );
+        end
+    endgenerate
 
     regfile #(
         .DATA_WIDTH    (_BITWIDTH_STRUCT_PHYREGS*IS_INST_OPERANDS),
@@ -393,23 +480,6 @@ module instruction_state_table #(
         .i_write_data  (rs_phyregs)
     );
     
-    regfile #(
-        .DATA_WIDTH    (_BITWIDTH_EX_INST_WIDTH),
-        .ENTRIES       (STRUCT_INST_STATE_ENTRIES),
-        .READ_CHANNEL  (STRUCT_PRM_ENTRY_UPDATE),
-        .WRITE_CHANNEL (STRUCT_DECODE_NEW_INST),
-        .INITIAL_VALUE (0)
-    ) U_IST_ENTRY_TABLE (
-        .clk           (clk),
-        .reset_n       (reset_n),
-        .i_flush       (1'b0), // 지금은 분기가 없어..
-        .i_read_addr   (issue_istnum_all),
-        .o_read_data   (o_rs_ready_inst_data[(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_EX_INST_WIDTH)-1:0]),
-        .i_write_addr  (allocate_alloc_num_out),
-        .i_write_en    (allocate_is_entries),
-        .i_write_data  (nel_new_inst_data)
-    );
-
     genvar ready_rf_idx;
 
     generate

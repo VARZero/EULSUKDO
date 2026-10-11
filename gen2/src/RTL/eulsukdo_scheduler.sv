@@ -27,6 +27,12 @@ module eulsukdo_scheduler #(
     parameter int STRUCT_FLOW_WINDOWS                   = 8,
     parameter int STRUCT_FLOW_PC_MAX_RANGE              = 16,
 
+    // Wakeup bandwidth, stored-instruction issue bandwidth and SRAM banking
+    // are independent. Banks use low entry-number bits (power of two).
+    parameter int STRUCT_IST_ISSUE_WIDTH               = STRUCT_EX_CORES,
+    parameter int STRUCT_IST_BANKS                     = 1 << $clog2(
+        (STRUCT_DECODE_NEW_INST > STRUCT_IST_ISSUE_WIDTH) ? STRUCT_DECODE_NEW_INST : STRUCT_IST_ISSUE_WIDTH),
+
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
@@ -137,9 +143,9 @@ module eulsukdo_scheduler #(
     wire [(STRUCT_PRM_ENTRY_UPDATE *(_BITWIDTH_READY_PRM) )-1:0]                              prm_ist_ready_phyreg_data;
 
     // IST -> RS : Executable (All phyreg in instruction are ready) Internal Instructions
-    wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_valid;
-    wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               ist_rs_ready_inst_get;
-    wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] ist_rs_ready_inst_data;
+    wire [(STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH)-1:0]                               ist_rs_ready_inst_valid;
+    wire [(STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH)-1:0]                               ist_rs_ready_inst_get;
+    wire [((STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] ist_rs_ready_inst_data;
 
     // IST -> PRM : Wait Phyreg/ISTmap pair
     wire [(STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS)-1:0]                                      ist_prm_wait_phyreg_valid;
@@ -286,6 +292,8 @@ module eulsukdo_scheduler #(
         .STRUCT_EX_OUT_RESULT_SUM(STRUCT_EX_OUT_RESULT_SUM),
         .STRUCT_EX_BRANCH(STRUCT_EX_BRANCH),
         .STRUCT_PRM_ENTRY_UPDATE(STRUCT_PRM_ENTRY_UPDATE),
+        .STRUCT_IST_ISSUE_WIDTH(STRUCT_IST_ISSUE_WIDTH),
+        .STRUCT_IST_BANKS(STRUCT_IST_BANKS),
         .STRUCT_PRM_ENTRY_BUFFER(STRUCT_PRM_ENTRY_BUFFER),
         .STRUCT_UNALLOCATE_PHYREG(STRUCT_UNALLOCATE_PHYREG),
         .STRUCT_FLOW_WINDOWS(STRUCT_FLOW_WINDOWS),
@@ -331,6 +339,8 @@ module eulsukdo_scheduler #(
         .STRUCT_EX_OUT_RESULT_SUM(STRUCT_EX_OUT_RESULT_SUM),
         .STRUCT_EX_BRANCH(STRUCT_EX_BRANCH),
         .STRUCT_PRM_ENTRY_UPDATE(STRUCT_PRM_ENTRY_UPDATE),
+        .STRUCT_IST_ISSUE_WIDTH(STRUCT_IST_ISSUE_WIDTH),
+        .STRUCT_IST_BANKS(STRUCT_IST_BANKS),
         .STRUCT_PRM_ENTRY_BUFFER(STRUCT_PRM_ENTRY_BUFFER),
         .STRUCT_UNALLOCATE_PHYREG(STRUCT_UNALLOCATE_PHYREG),
         .STRUCT_FLOW_WINDOWS(STRUCT_FLOW_WINDOWS),

@@ -9,6 +9,9 @@ module tb_scheduler_stress #(
     parameter int IST_ENTRIES = 128,
     parameter int UPDATES = 5,
     parameter int SEED = 1,
+    parameter int EX_CORES = 5,
+    parameter int ISSUE = EX_CORES,
+    parameter int BANKS = 1 << $clog2(DECODE > ISSUE ? DECODE : ISSUE),
     parameter int COUNT = 384
 );
     localparam int FLOW_W = WINDOWS > 1 ? $clog2(WINDOWS) : 1;
@@ -24,9 +27,9 @@ module tb_scheduler_stress #(
     logic [DECODE*5-1:0] microop, rd;
     logic [DECODE*10-1:0] rs;
     logic [DECODE*32-1:0] imm;
-    logic [4:0] ex_valid, ex_get, wb_valid;
-    logic [5*INST_W-1:0] ex_data;
-    logic [5*RESULT_W-1:0] wb_data;
+    logic [EX_CORES-1:0] ex_valid, ex_get, wb_valid;
+    logic [EX_CORES*INST_W-1:0] ex_data;
+    logic [EX_CORES*RESULT_W-1:0] wb_data;
     logic [TAG_W-1:0] requests[$], tags[COUNT];
     int latest[32], source[COUNT][2], physical[COUNT], due[COUNT], value_version[64];
     bit accepted[COUNT], issued[COUNT], done[COUNT], scheduled[COUNT];
@@ -34,6 +37,60 @@ module tb_scheduler_stress #(
     int cycle, fetched, received, issue_count, done_count, out_of_order;
     int path_count[3], backpressure, epoch, overflow_stall, recycled, completion_ooo;
     logic [31:0] rng;
+
+    // Check the actual FCL/PRM interface contract independently of PRM state.
+    // These are testbench counters only; there is no lifetime counter in PRM.
+    localparam int WAIT_W = $clog2(IST_ENTRIES)+6;
+    int pending_notifications[64], checked_returns;
+    bit pending_pairs[IST_ENTRIES][64];
+    always @(posedge clk) begin : return_contract
+        int p, s;
+        bit duplicate_pair;
+        if (!reset_n) begin
+            checked_returns = 0;
+            for (int r = 0; r < 64; r++) begin
+                pending_notifications[r] = 0;
+                for (int e = 0; e < IST_ENTRIES; e++) pending_pairs[e][r] = 0;
+            end
+        end else begin
+            for (int lane = 0; lane < DECODE*2; lane++) begin
+                if (dut.ist_prm_wait_phyreg_valid[lane]) begin
+                    duplicate_pair = 0;
+                    for (int prev = 0; prev < lane; prev++) begin
+                        if (dut.ist_prm_wait_phyreg_valid[prev] &&
+                            dut.ist_prm_wait_phyreg_data[prev*WAIT_W +: WAIT_W] ==
+                            dut.ist_prm_wait_phyreg_data[lane*WAIT_W +: WAIT_W]) duplicate_pair = 1;
+                    end
+                    if (!duplicate_pair) begin
+                        p = int'(dut.ist_prm_wait_phyreg_data[lane*WAIT_W +: 6]);
+                        s = int'(dut.ist_prm_wait_phyreg_data[lane*WAIT_W+6 +: $clog2(IST_ENTRIES)]);
+                        if (pending_pairs[s][p]) $fatal(1, "Repeated PRM wait pair");
+                        pending_pairs[s][p] = 1;
+                        pending_notifications[p]++;
+                    end
+                end
+            end
+            for (int lane = 0; lane < UPDATES; lane++) begin
+                if (dut.prm_ist_ready_phyreg_valid[lane]) begin
+                    p = int'(dut.prm_ist_ready_phyreg_data[lane*WAIT_W +: 6]);
+                    s = int'(dut.prm_ist_ready_phyreg_data[lane*WAIT_W+6 +: $clog2(IST_ENTRIES)]);
+                    if (!pending_pairs[s][p]) $fatal(1, "Unexpected PRM notification");
+                    pending_pairs[s][p] = 0;
+                    pending_notifications[p]--;
+                end
+            end
+            for (int lane = 0; lane < 4; lane++) begin
+                if (dut.fcl_prm_unallocate_phyreg_valid[lane]) begin
+                    p = int'(dut.fcl_prm_unallocate_phyreg_data[lane*6 +: 6]);
+                    if (p != 0) begin
+                        if (pending_notifications[p] != 0)
+                            $fatal(1, "FCL returned PHY=%0d with %0d pending notifications", p, pending_notifications[p]);
+                        checked_returns++;
+                    end
+                end
+            end
+        end
+    end
 
     function automatic int dst(input int id);
         if (id == 0) return 1;
@@ -62,7 +119,10 @@ module tb_scheduler_stress #(
     eulsukdo_scheduler #(
         .STRUCT_DECODE_NEW_INST(DECODE), .STRUCT_FLOW_WINDOWS(WINDOWS),
         .STRUCT_FLOW_PC_MAX_RANGE(RANGE), .STRUCT_INST_STATE_ENTRIES(IST_ENTRIES),
-        .STRUCT_PRM_ENTRY_UPDATE(UPDATES)
+        .STRUCT_PRM_ENTRY_UPDATE(UPDATES),
+        .STRUCT_EX_CORES(EX_CORES), .STRUCT_RS_OUT_ENTRY('{1, EX_CORES-2, 1}),
+        .STRUCT_EX_OUT_RESULT('{default: 1}), .STRUCT_EX_OUT_RESULT_SUM(EX_CORES),
+        .STRUCT_IST_ISSUE_WIDTH(ISSUE), .STRUCT_IST_BANKS(BANKS)
     ) dut (
         .clk(clk), .reset_n(reset_n),
         .o_im_req_pc_valid(req_valid), .i_im_req_pc_get(req_get), .o_im_req_pc(req_pc),
@@ -110,7 +170,7 @@ module tb_scheduler_stress #(
                 !dut.U_PHYSICAL_REGISTER_MAPPER.input_map_fit) overflow_stall++;
             req_get <= {DECODE{(fetched < COUNT) && (cycle % 7 != 0)}};
             // Completions become visible to the DUT on this edge.
-            for (int e = 0; e < 5; e++) if (wb_valid[e]) begin
+            for (int e = 0; e < EX_CORES; e++) if (wb_valid[e]) begin
                 id = int'(wb_data[e*RESULT_W +: 32]/4);
                 if (!issued[id] || done[id]) $fatal(1, "Invalid completion id=%0d", id);
                 for (int older = 0; older < id; older++)
@@ -141,11 +201,11 @@ module tb_scheduler_stress #(
                     end
                 end
             end
-            for (int e = 0; e < 5; e++) begin
+            for (int e = 0; e < EX_CORES; e++) begin
                 if (ex_valid[e] && ex_get[e]) begin
                     id = int'(ex_data[e*INST_W +: 32]/4);
                     if (id >= COUNT || !accepted[id] || issued[id]) $fatal(1, "Lost/duplicate issue id=%0d", id);
-                    expected_path = e == 0 ? 0 : (e == 4 ? 2 : 1);
+                    expected_path = e == 0 ? 0 : (e == EX_CORES-1 ? 2 : 1);
                     if (id % 3 != expected_path || ex_data[e*INST_W+TAG_W +: 2] != 2'(expected_path))
                         $fatal(1, "Wrong EX path id=%0d lane=%0d", id, e);
                     if (ex_data[e*INST_W +: TAG_W] != tags[id] ||
@@ -182,7 +242,7 @@ module tb_scheduler_stress #(
             wb_valid <= '0; wb_data <= '0; lane = 0;
             // Reverse scan deliberately reorders ready completions.
             for (int i = COUNT-1; i >= 0; i--) begin
-                if (issued[i] && !scheduled[i] && due[i] <= cycle && lane < 5) begin
+                if (issued[i] && !scheduled[i] && due[i] <= cycle && lane < EX_CORES) begin
                     wb_valid[lane] <= 1;
                     wb_data[lane*RESULT_W +: RESULT_W] <= {6'(physical[i]), tags[i]};
                     scheduled[i] = 1; lane++;
@@ -206,11 +266,14 @@ module tb_scheduler_stress #(
             for (int p = 0; p < 3; p++) if (path_count[p] == 0) $fatal(1, "Missing EX path coverage");
             if (out_of_order == 0 || completion_ooo == 0) $fatal(1, "Missing out-of-order coverage");
             if (overflow_stall == 0 || recycled == 0) $fatal(1, "Missing PRM overflow/recycling coverage");
+            if (checked_returns == 0) $fatal(1, "Missing FCL return contract coverage");
+            for (int p = 0; p < 64; p++)
+                if (pending_notifications[p] != 0) $fatal(1, "Pending PRM notification after drain");
             $display("epoch=%0d count=%0d cycles=%0d overlapping_issue=%0d OOO_completion=%0d IM_stall=%0d PRM_overflow=%0d recycled=%0d paths=%0d,%0d,%0d",
                 epoch, done_count, cycle, out_of_order, completion_ooo, backpressure, overflow_stall, recycled,
                 path_count[0], path_count[1], path_count[2]);
         end
-        $display("PASS scheduler stress D=%0d WINDOWS=%0d RANGE=%0d IST=%0d U=%0d SEED=%0d", DECODE, WINDOWS, RANGE, IST_ENTRIES, UPDATES, SEED);
+        $display("PASS scheduler stress D=%0d WINDOWS=%0d RANGE=%0d IST=%0d U=%0d SEED=%0d EX=%0d ISSUE=%0d BANKS=%0d", DECODE, WINDOWS, RANGE, IST_ENTRIES, UPDATES, SEED, EX_CORES, ISSUE, BANKS);
         $finish;
     end
     initial begin #1000000; $fatal(1, "Stress watchdog"); end

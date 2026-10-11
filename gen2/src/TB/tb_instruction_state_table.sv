@@ -1,12 +1,14 @@
 `timescale 1ns/1ps
 
-// Directed IST regression using the real allocator and regfiles.
+// Directed IST regression using the bank allocator, synchronous SRAM and metadata.
 // The scoreboard checks transfers and payloads independently of DUT state.
 module tb_instruction_state_table #(
     parameter int DECODE = 2,
     parameter int OPERANDS = 2,
     parameter int UPDATES = 5,
-    parameter int ENTRIES = 16
+    parameter int ENTRIES = 16,
+    parameter int ISSUE = 5,
+    parameter int BANKS = 1 << $clog2(DECODE > ISSUE ? DECODE : ISSUE)
 );
     localparam int PHY_W = 6;
     localparam int IDX_W = $clog2(ENTRIES);
@@ -14,7 +16,7 @@ module tb_instruction_state_table #(
     localparam int RS_START = 32+3+2+5+32+PHY_W;
     localparam int EX_W = RS_START+OPERANDS*PHY_W;
     localparam int INST_W = EX_W+OPERANDS;
-    localparam int OUTS = DECODE+UPDATES;
+    localparam int OUTS = DECODE+ISSUE;
 
     logic clk = 0, reset_n = 0;
     always #5 clk = ~clk;
@@ -31,6 +33,8 @@ module tb_instruction_state_table #(
         .STRUCT_DECODE_NEW_INST (DECODE),
         .IS_INST_OPERANDS (OPERANDS),
         .STRUCT_PRM_ENTRY_UPDATE (UPDATES),
+        .STRUCT_IST_ISSUE_WIDTH (ISSUE),
+        .STRUCT_IST_BANKS (BANKS),
         .STRUCT_INST_STATE_ENTRIES (ENTRIES)
     ) dut (
         .clk (clk), .reset_n (reset_n),
@@ -45,6 +49,7 @@ module tb_instruction_state_table #(
     logic [EX_W-1:0] expected [0:1023];
     logic [OPERANDS-1:0] reference_ready [0:1023];
     integer request_count, accept_count, issue_count;
+    integer stored_transfers, peak_stored, full_issue_run, longest_full_issue_run;
     integer pc, slot, preg, mapped_slot;
     logic [OUTS-1:0] stalled;
     logic [OUTS*EX_W-1:0] stalled_data;
@@ -52,6 +57,7 @@ module tb_instruction_state_table #(
     always @(posedge clk) begin
         if (!reset_n) begin
             request_count = 0; accept_count = 0; issue_count = 0;
+            peak_stored = 0; full_issue_run = 0; longest_full_issue_run = 0;
             stalled = '0; stalled_data = '0;
             for (int p = 0; p < 1024; p++) begin
                 accepted[p] = 0; seen[p] = 0; slot_of[p] = -1;
@@ -61,6 +67,25 @@ module tb_instruction_state_table #(
             if ((|nel_get) || (|wait_valid) || (|rs_valid)) $fatal(1, "Transfer during reset");
         end
         else begin
+            // The RAM port free-runs on its held address when idle. Only
+            // qualified reads/responses must be protected from same-row writes.
+            for (int b = 0; b < BANKS; b++) begin
+                if (dut.request_count[b] > 2) $fatal(1, "Address FIFO overflow bank=%0d", b);
+                if (dut.bank_write[b] && (dut.bank_read[b] || dut.bank_response_valid[b]) &&
+                    dut.bank_write_row[b] == dut.bank_read_row[b])
+                    $fatal(1, "Write collided with a live SRAM read bank=%0d", b);
+                if (dut.bank_read[b]) begin
+                    int entry_id;
+                    entry_id = int'(dut.bank_read_row[b])*BANKS+b;
+                    if (entry_id >= ENTRIES) $fatal(1, "Read of padded SRAM entry");
+                    if (!dut.active_entries[entry_id] || !dut.queued_entries[entry_id])
+                        $fatal(1, "SRAM read lost entry ownership");
+                end
+            end
+            stored_transfers = $countones(rs_valid[ISSUE-1:0] & rs_get[ISSUE-1:0]);
+            if (stored_transfers > peak_stored) peak_stored = stored_transfers;
+            if (stored_transfers == ISSUE) full_issue_run++; else full_issue_run = 0;
+            if (full_issue_run > longest_full_issue_run) longest_full_issue_run = full_issue_run;
             // Notifications refer to entries allocated on earlier cycles.
             for (int u = 0; u < UPDATES; u++) begin
                 if (prm_valid[u]) begin
@@ -216,17 +241,20 @@ module tb_instruction_state_table #(
         for (int d = 0; d < DECODE; d++) nel_data[d*INST_W +: INST_W] = instruction(20+d, '1, 0);
         notify_slot(0, slot_of[7], 9); step(); prm_valid = '0; nel_valid = '0;
         repeat (8) step();
+        // A repeated wakeup after queueing/reading must not enqueue it again.
+        notify_slot(UPDATES-1, slot_of[7], 9); step(); prm_valid = '0;
+        repeat (4) step();
         if ((seen[7] != 0) || (request_count != saved_requests) || (|nel_get)) $fatal(1, "Stall was not retained");
-        if (!rs_valid[0] || !(&rs_valid[UPDATES +: DECODE])) $fatal(1, "Valid depends on Get");
+        if (!rs_valid[0] || !(&rs_valid[ISSUE +: DECODE])) $fatal(1, "Valid depends on Get");
         // Partial Get permits only the corresponding pending output channel.
         rs_get[0] = 1; await_issue(7);
         if (accepted[20] != 1 || seen[20] != 0) $fatal(1, "Ready bypass was not buffered");
         // Drain ready bypass lanes separately, including the highest lane first.
         rs_get = '0;
         for (int d = DECODE-1; d >= 0; d--) begin
-            rs_get[UPDATES+d] = 1'b1;
+            rs_get[ISSUE+d] = 1'b1;
             step();
-            rs_get[UPDATES+d] = 1'b0;
+            rs_get[ISSUE+d] = 1'b0;
         end
         rs_get = '1;
         for (int d = 0; d < DECODE; d++) await_issue(20+d);
@@ -253,7 +281,15 @@ module tb_instruction_state_table #(
         end
         // A receiver may wait for Valid before asserting Get. Accept sparse,
         // changing lanes and verify other lanes retain their exact payloads.
-        repeat (3) step();
+        repeat (8) step();
+        // Release a backlog at full width: 4-decode must still support 7-issue.
+        rs_get = '1;
+        repeat (12) step();
+        if (DECODE == 4 && ISSUE == 7 && BANKS == 8 && ENTRIES >= 128) begin
+            if (peak_stored != 7 || longest_full_issue_run < 2)
+                $fatal(1, "Missing sustained 7-wide backlog drain: peak=%0d run=%0d", peak_stored, longest_full_issue_run);
+            $display("COVER 4d/7i backlog peak=%0d consecutive_full_issue=%0d PRM_updates=%0d", peak_stored, longest_full_issue_run, UPDATES);
+        end
         for (int t = 0; t < fill_count*4; t++) begin
             #1;
             for (int c = 0; c < OUTS; c++) rs_get[c] = rs_valid[c] && ((t+c)%3 != 0);
@@ -284,11 +320,12 @@ module tb_instruction_state_table #(
         // Reset discards an occupied entry and suppresses all transfer pulses.
         send_one(900, '0, 1); rs_get = '0;
         notify_slot(0, slot_of[900], 9); step(); prm_valid = '0;
+        repeat (6) step();
         reset_n = 0; repeat (2) step();
         reset_n = 1; rs_get = '1;
         send_one(901, '1); await_issue(901);
         repeat (5) step();
-        $display("PASS IST DECODE=%0d OPERANDS=%0d UPDATES=%0d ENTRIES=%0d", DECODE, OPERANDS, UPDATES, ENTRIES);
+        $display("PASS IST DECODE=%0d OPERANDS=%0d UPDATES=%0d ENTRIES=%0d ISSUE=%0d BANKS=%0d", DECODE, OPERANDS, UPDATES, ENTRIES, ISSUE, BANKS);
         $finish;
     end
 

@@ -17,14 +17,38 @@ module tb_fifo_multichan #(
     int serial = 1, accepted, removed;
     logic [31:0] rng = 32'hc0ffee13;
 
-    fifo_multichan #(
-        .DATA_WIDTH(DATA_WIDTH), .READ_CHANNEL(READ_CHANNEL), .WRITE_CHANNEL(WRITE_CHANNEL),
-        .MIN_FIFO_ENTRY(MIN_FIFO_ENTRY), .USE_BRAM(USE_BRAM != 0)
-    ) dut (
-        .clk(clk), .reset_n(reset_n), .i_flush(flush),
-        .i_push(push), .o_push_ready(ready), .i_push_data(push_data),
-        .i_pop(pop), .o_pop_valid(valid), .o_pop_data(data)
-    );
+    // Compare compact-then-append input ordering with the previous direct
+    // placement. Both use the already verified optimized output gather.
+    generate begin : G_EQUIVALENCE
+        logic [WRITE_CHANNEL-1:0] reference_ready;
+        logic [READ_CHANNEL-1:0] reference_valid;
+        logic [READ_CHANNEL*DATA_WIDTH-1:0] reference_data;
+        fifo_multichan #(
+            .DATA_WIDTH(DATA_WIDTH), .READ_CHANNEL(READ_CHANNEL), .WRITE_CHANNEL(WRITE_CHANNEL),
+            .MIN_FIFO_ENTRY(MIN_FIFO_ENTRY), .USE_BRAM(USE_BRAM != 0),
+            .OPTIMIZED_INPUT_GATHER(1'b1)
+        ) dut (
+            .clk(clk), .reset_n(reset_n), .i_flush(flush),
+            .i_push(push), .o_push_ready(ready), .i_push_data(push_data),
+            .i_pop(pop), .o_pop_valid(valid), .o_pop_data(data)
+        );
+        fifo_multichan #(
+            .DATA_WIDTH(DATA_WIDTH), .READ_CHANNEL(READ_CHANNEL), .WRITE_CHANNEL(WRITE_CHANNEL),
+            .MIN_FIFO_ENTRY(MIN_FIFO_ENTRY), .USE_BRAM(USE_BRAM != 0),
+            .OPTIMIZED_INPUT_GATHER(1'b0)
+        ) reference_fifo (
+            .clk(clk), .reset_n(reset_n), .i_flush(flush),
+            .i_push(push), .o_push_ready(reference_ready), .i_push_data(push_data),
+            .i_pop(pop), .o_pop_valid(reference_valid), .o_pop_data(reference_data)
+        );
+        always @(posedge clk) begin
+            if (ready !== reference_ready || valid !== reference_valid)
+                $fatal(1, "FIFO cycle-equivalence failed: ready/valid");
+            for (int lane = 0; lane < READ_CHANNEL; lane++)
+                if (valid[lane] && data[lane*DATA_WIDTH +: DATA_WIDTH] !== reference_data[lane*DATA_WIDTH +: DATA_WIDTH])
+                    $fatal(1, "FIFO cycle-equivalence failed: data lane=%0d", lane);
+        end
+    end endgenerate
 
     always @(posedge clk) begin
         if (!reset_n || flush) begin
@@ -86,6 +110,15 @@ module tb_fifo_multichan #(
             if (expected.size() < MIN_FIFO_ENTRY) $fatal(1, "FIFO capacity below promised minimum");
             drain();
         end
+        // Cover every sparse pop mask with a full head, including interior
+        // holes, while refills and pushes compete with output retention.
+        for (int mask = 0; mask < (1 << READ_CHANNEL); mask++) begin
+            push = '1; pop = '0;
+            repeat (2*READ_CHANNEL+10) begin new_data(); step(); end
+            if (!(&valid)) $fatal(1, "Directed pop mask lacks full head");
+            pop = READ_CHANNEL'(mask); new_data(); step();
+        end
+        drain();
         for (int t = 0; t < 2000; t++) begin
             new_data();
             for (int w = 0; w < WRITE_CHANNEL; w++) push[w] = 1'((random_word()%3) != 0);
@@ -96,6 +129,9 @@ module tb_fifo_multichan #(
         push = '1; pop = '0;
         repeat (20) begin new_data(); step(); end
         flush = 1; step(); flush = 0; push = '0; drain();
+        push = '1; pop = '0;
+        repeat (20) begin new_data(); step(); end
+        reset_n = 0; step(); reset_n = 1; push = '0; drain();
         push = '1;
         repeat (10) begin new_data(); step(); end
         drain();

@@ -554,12 +554,208 @@ module fifo_bram #(
 
 endmodule
 
+// This is deliberately NOT an arbitrary-mask gather. The FIFO supplies two
+// halves: the lower half can have holes only in its first READ_CHANNEL lanes;
+// its remaining tail and the upper half are each packed valid prefixes.
+// The upper half is either retained output data or a newly fetched FIFO word.
+module fifo_output_gather #(
+    parameter int DATA_WIDTH = 32,
+    parameter int FIFO_CHANNEL = 7,
+    parameter int READ_CHANNEL = 3,
+    localparam int WORD_WIDTH = FIFO_CHANNEL*DATA_WIDTH,
+    localparam int COUNT_WIDTH = $clog2(FIFO_CHANNEL+1),
+    localparam int HEAD_COUNT_WIDTH = $clog2(READ_CHANNEL+1)
+) (
+    input  logic [2*FIFO_CHANNEL-1:0] i_valid,
+    input  logic [2*WORD_WIDTH-1:0] i_data,
+    output logic [2*FIFO_CHANNEL-1:0] o_valid,
+    output logic [2*WORD_WIDTH-1:0] o_data
+);
+    logic [READ_CHANNEL-1:0] head_valid;
+    logic [READ_CHANNEL*DATA_WIDTH-1:0] head_data;
+    logic [HEAD_COUNT_WIDTH-1:0] head_count, head_holes;
+    logic [COUNT_WIDTH-1:0] low_count;
+    logic [FIFO_CHANNEL-1:0] tail_valid;
+    logic [WORD_WIDTH-1:0] tail_data, upper_data;
+    logic [FIFO_CHANNEL-1:0] tail_valid_shift [0:HEAD_COUNT_WIDTH];
+    logic [WORD_WIDTH-1:0] tail_data_shift [0:HEAD_COUNT_WIDTH];
+    logic [2*FIFO_CHANNEL-1:0] upper_valid_shift [0:COUNT_WIDTH];
+    logic [2*WORD_WIDTH-1:0] upper_data_shift [0:COUNT_WIDTH];
+
+    // Sparse output Get is allowed: e.g. popping B from A,B,C keeps A,C.
+    // Only this small head needs arbitrary stable compaction.
+    generate
+        if (READ_CHANNEL == 1) begin : G_SINGLE_HEAD
+            assign head_valid = i_valid[0];
+            assign head_data = i_data[DATA_WIDTH-1:0] & {DATA_WIDTH{i_valid[0]}};
+        end
+        else begin : G_MULTI_HEAD
+            valid_gather #(
+                .DATA_WIDTH (DATA_WIDTH),
+                .ENTRIES (READ_CHANNEL)
+            ) U_HEAD_GATHER (
+                .i_valid (i_valid[READ_CHANNEL-1:0]),
+                .i_data (i_data[READ_CHANNEL*DATA_WIDTH-1:0]),
+                .o_valid (head_valid),
+                .o_data (head_data)
+            );
+        end
+    endgenerate
+
+    always_comb begin
+        head_count = '0;
+        low_count = '0;
+        tail_valid = '0;
+        tail_data = '0;
+        upper_data = '0;
+        for (int lane = 0; lane < READ_CHANNEL; lane = lane+1)
+            head_count = head_count + HEAD_COUNT_WIDTH'(i_valid[lane]);
+        head_holes = HEAD_COUNT_WIDTH'(READ_CHANNEL) - head_count;
+
+        for (int lane = 0; lane < FIFO_CHANNEL; lane = lane+1) begin
+            low_count = low_count + COUNT_WIDTH'(i_valid[lane]);
+            upper_data[lane*DATA_WIDTH +: DATA_WIDTH] =
+                i_data[(FIFO_CHANNEL+lane)*DATA_WIDTH +: DATA_WIDTH] &
+                {DATA_WIDTH{i_valid[FIFO_CHANNEL+lane]}};
+            if (lane >= READ_CHANNEL) begin
+                tail_valid[lane] = i_valid[lane];
+                tail_data[lane*DATA_WIDTH +: DATA_WIDTH] =
+                    i_data[lane*DATA_WIDTH +: DATA_WIDTH] & {DATA_WIDTH{i_valid[lane]}};
+            end
+        end
+
+        // The intact tail closes at most READ_CHANNEL holes. Append the
+        // packed upper word at low_count; no full-buffer crossbar or new FFs.
+        // Constant word-sized shift stages avoid a bit-level barrel shifter
+        // driven by count*DATA_WIDTH (instruction widths need not be powers of 2).
+        tail_valid_shift[0] = tail_valid;
+        tail_data_shift[0] = tail_data;
+        for (int stage = 0; stage < HEAD_COUNT_WIDTH; stage = stage+1) begin
+            tail_valid_shift[stage+1] = head_holes[stage] ?
+                (tail_valid_shift[stage] >> (1 << stage)) : tail_valid_shift[stage];
+            tail_data_shift[stage+1] = head_holes[stage] ?
+                (tail_data_shift[stage] >> ((1 << stage)*DATA_WIDTH)) : tail_data_shift[stage];
+        end
+        upper_valid_shift[0] = {{FIFO_CHANNEL{1'b0}}, i_valid[2*FIFO_CHANNEL-1:FIFO_CHANNEL]};
+        upper_data_shift[0] = {{WORD_WIDTH{1'b0}}, upper_data};
+        for (int stage = 0; stage < COUNT_WIDTH; stage = stage+1) begin
+            upper_valid_shift[stage+1] = low_count[stage] ?
+                (upper_valid_shift[stage] << (1 << stage)) : upper_valid_shift[stage];
+            upper_data_shift[stage+1] = low_count[stage] ?
+                (upper_data_shift[stage] << ((1 << stage)*DATA_WIDTH)) : upper_data_shift[stage];
+        end
+        o_valid = upper_valid_shift[COUNT_WIDTH];
+        o_data = upper_data_shift[COUNT_WIDTH];
+        o_valid[FIFO_CHANNEL-1:0] = o_valid[FIFO_CHANNEL-1:0] |
+            tail_valid_shift[HEAD_COUNT_WIDTH] | FIFO_CHANNEL'(head_valid);
+        o_data[WORD_WIDTH-1:0] = o_data[WORD_WIDTH-1:0] |
+            tail_data_shift[HEAD_COUNT_WIDTH] | WORD_WIDTH'(head_data);
+    end
+endmodule
+
+// Stable compaction tree: compact each half independently, then shift the
+// right half by the left count. Payload selection is local to each merge.
+module fifo_input_compact #(
+    parameter int DATA_WIDTH = 32,
+    parameter int CHANNELS = 7,
+    localparam int COUNT_WIDTH = $clog2(CHANNELS+1)
+) (
+    input  logic [CHANNELS-1:0] i_valid,
+    input  logic [CHANNELS*DATA_WIDTH-1:0] i_data,
+    output logic [COUNT_WIDTH-1:0] o_count,
+    output logic [CHANNELS*DATA_WIDTH-1:0] o_data
+);
+    generate
+        if (CHANNELS == 1) begin : G_LEAF
+            assign o_count = i_valid;
+            assign o_data = i_data & {DATA_WIDTH{i_valid[0]}};
+        end
+        else begin : G_MERGE
+            localparam int LEFT = CHANNELS/2;
+            localparam int RIGHT = CHANNELS-LEFT;
+            localparam int LEFT_COUNT_WIDTH = $clog2(LEFT+1);
+            localparam int RIGHT_COUNT_WIDTH = $clog2(RIGHT+1);
+            logic [LEFT_COUNT_WIDTH-1:0] left_count;
+            logic [RIGHT_COUNT_WIDTH-1:0] right_count;
+            logic [LEFT*DATA_WIDTH-1:0] left_data;
+            logic [RIGHT*DATA_WIDTH-1:0] right_data;
+            logic [CHANNELS*DATA_WIDTH-1:0] right_shift [0:LEFT_COUNT_WIDTH];
+            fifo_input_compact #(.DATA_WIDTH(DATA_WIDTH), .CHANNELS(LEFT)) U_LEFT (
+                .i_valid(i_valid[LEFT-1:0]), .i_data(i_data[LEFT*DATA_WIDTH-1:0]),
+                .o_count(left_count), .o_data(left_data)
+            );
+            fifo_input_compact #(.DATA_WIDTH(DATA_WIDTH), .CHANNELS(RIGHT)) U_RIGHT (
+                .i_valid(i_valid[CHANNELS-1:LEFT]), .i_data(i_data[CHANNELS*DATA_WIDTH-1:LEFT*DATA_WIDTH]),
+                .o_count(right_count), .o_data(right_data)
+            );
+            always_comb begin
+                o_count = COUNT_WIDTH'(left_count) + COUNT_WIDTH'(right_count);
+                right_shift[0] = (CHANNELS*DATA_WIDTH)'(right_data);
+                for (int stage = 0; stage < LEFT_COUNT_WIDTH; stage = stage+1)
+                    right_shift[stage+1] = left_count[stage] ?
+                        (right_shift[stage] << ((1 << stage)*DATA_WIDTH)) : right_shift[stage];
+                o_data = (CHANNELS*DATA_WIDTH)'(left_data) | right_shift[LEFT_COUNT_WIDTH];
+            end
+        end
+    endgenerate
+endmodule
+
+// Append a sparse input bundle to an already packed prefix. Only new input
+// lanes need arbitrary compaction; their packed result moves as one word.
+module fifo_input_append #(
+    parameter int DATA_WIDTH = 32,
+    parameter int INPUT_CHANNEL = 7,
+    parameter int BUFFER_ENTRIES = 14,
+    localparam int BUFFER_WIDTH = BUFFER_ENTRIES*DATA_WIDTH,
+    localparam int COUNT_WIDTH = $clog2(BUFFER_ENTRIES+1)
+) (
+    input  logic [BUFFER_ENTRIES-1:0] i_retained_valid,
+    input  logic [BUFFER_WIDTH-1:0] i_retained_data,
+    input  logic [COUNT_WIDTH-1:0] i_retained_count,
+    input  logic [INPUT_CHANNEL-1:0] i_valid,
+    input  logic [INPUT_CHANNEL*DATA_WIDTH-1:0] i_data,
+    output logic [BUFFER_ENTRIES-1:0] o_valid,
+    output logic [BUFFER_WIDTH-1:0] o_data
+);
+    logic [INPUT_CHANNEL-1:0] packed_valid;
+    logic [INPUT_CHANNEL*DATA_WIDTH-1:0] packed_data;
+    logic [$clog2(INPUT_CHANNEL+1)-1:0] packed_count;
+    logic [BUFFER_ENTRIES-1:0] shifted_valid [0:COUNT_WIDTH];
+    logic [BUFFER_WIDTH-1:0] shifted_data [0:COUNT_WIDTH];
+
+    fifo_input_compact #(.DATA_WIDTH(DATA_WIDTH), .CHANNELS(INPUT_CHANNEL)) U_INPUT_COMPACT (
+        .i_valid(i_valid), .i_data(i_data), .o_count(packed_count), .o_data(packed_data)
+    );
+
+    always_comb begin
+        for (int lane = 0; lane < INPUT_CHANNEL; lane = lane+1)
+            packed_valid[lane] = (lane < int'(packed_count));
+        shifted_valid[0] = BUFFER_ENTRIES'(packed_valid);
+        shifted_data[0] = BUFFER_WIDTH'(packed_data);
+        for (int stage = 0; stage < COUNT_WIDTH; stage = stage+1) begin
+            shifted_valid[stage+1] = i_retained_count[stage] ?
+                (shifted_valid[stage] << (1 << stage)) : shifted_valid[stage];
+            shifted_data[stage+1] = i_retained_count[stage] ?
+                (shifted_data[stage] << ((1 << stage)*DATA_WIDTH)) : shifted_data[stage];
+        end
+        o_valid = i_retained_valid | shifted_valid[COUNT_WIDTH];
+        o_data = shifted_data[COUNT_WIDTH];
+        for (int lane = 0; lane < BUFFER_ENTRIES; lane = lane+1)
+            o_data[lane*DATA_WIDTH +: DATA_WIDTH] = o_data[lane*DATA_WIDTH +: DATA_WIDTH] |
+                (i_retained_data[lane*DATA_WIDTH +: DATA_WIDTH] & {DATA_WIDTH{i_retained_valid[lane]}});
+    end
+endmodule
+
 module fifo_multichan #(
     parameter  int                    DATA_WIDTH     = 32,
     parameter  int                    READ_CHANNEL   = 2,
     parameter  int                    WRITE_CHANNEL  = 2,
     parameter  int                    MIN_FIFO_ENTRY = 16,
     parameter  bit                    USE_BRAM       = 1'b0,
+    // Preserve the original gather as an A/B reference; all clients default
+    // to the packed-output implementation. Sparse external push/pop is valid.
+    parameter  bit                    OPTIMIZED_OUTPUT_GATHER = 1'b1,
+    parameter  bit                    OPTIMIZED_INPUT_GATHER = 1'b0,
 
     localparam int READ_DATA_WIDTH  = DATA_WIDTH * READ_CHANNEL,
     localparam int WRITE_DATA_WIDTH = DATA_WIDTH * WRITE_CHANNEL
@@ -579,11 +775,11 @@ module fifo_multichan #(
 );
     //   input: FF
     // ============ LAYER 1: Input ============
-    //   use valid_gather
+    //   compact sparse lanes in lane order
     // ============ LAYER 2: Ordering =========
     //   use FF
     // ============ LAYER 3: FIFO =============
-    //   use fifo_regfile
+    //   use fifo_regfile or fifo_bram
     // ============ LAYER 4: Output Buffering =
     //   use FF
     // ============ LAYER 5: Output ===========
@@ -659,6 +855,27 @@ module fifo_multichan #(
     wire [PUSH_ORDERING_VG_WIDTH-1:0] retained_data;
     wire [PUSH_COUNT_WIDTH-1:0] retained_count, push_occupancy;
     logic [PUSH_COUNT_WIDTH-1:0] append_position [0:WRITE_CHANNEL];
+    logic [PUSH_ORDERING_VG_LEN-1:0] compact_append_valid;
+    logic [PUSH_ORDERING_VG_WIDTH-1:0] compact_append_data;
+
+    generate
+        if (OPTIMIZED_INPUT_GATHER) begin : G_PACKED_INPUT
+            fifo_input_append #(
+                .DATA_WIDTH (DATA_WIDTH),
+                .INPUT_CHANNEL (WRITE_CHANNEL),
+                .BUFFER_ENTRIES (PUSH_ORDERING_VG_LEN)
+            ) U_APPEND (
+                .i_retained_valid (retained_valid), .i_retained_data (retained_data),
+                .i_retained_count ($clog2(PUSH_ORDERING_VG_LEN+1)'(retained_count)),
+                .i_valid (push_valid_reg), .i_data (push_data_reg),
+                .o_valid (compact_append_valid), .o_data (compact_append_data)
+            );
+        end
+        else begin : G_DIRECT_INPUT
+            assign compact_append_valid = '0;
+            assign compact_append_data = '0;
+        end
+    endgenerate
 
     // The output buffer accepts a complete FIFO word. If the FIFO is empty,
     // bypass its latency; otherwise its older data always has priority.
@@ -694,6 +911,11 @@ module fifo_multichan #(
             append_position[channel_idx+1] = append_position[channel_idx] + PUSH_COUNT_WIDTH'(push_valid_reg[channel_idx]);
         end
 
+        if (OPTIMIZED_INPUT_GATHER) begin
+            push_ord_vg_valid_next = compact_append_valid;
+            push_ord_vg_data_next = compact_append_data;
+        end
+        else begin
         // Decode bounded entry positions into fixed data slices. This avoids
         // serial variable-position writes across a wide packed vector. Incoming
         // lanes append in order, so the next state is packed without U_VG_PUSH.
@@ -710,6 +932,8 @@ module fifo_multichan #(
                         push_data_reg[channel_idx*DATA_WIDTH +: DATA_WIDTH];
                 end
             end
+        end
+
         end
 
         out_new_vg_valid = out_ord_vg_valid_reg;
@@ -761,15 +985,31 @@ module fifo_multichan #(
         end
     endgenerate
 
-    valid_gather #(
-        .DATA_WIDTH (DATA_WIDTH),
-        .ENTRIES    (OUT_ORDERING_VG_LEN)
-    ) U_VG_OUT (
-        .i_valid (out_new_vg_valid),
-        .i_data  (out_new_vg_data),
-        .o_valid (out_ord_vg_valid_next),
-        .o_data  (out_ord_vg_data_next)
-    );
+    generate
+        if (OPTIMIZED_OUTPUT_GATHER) begin : G_PACKED_OUTPUT
+            fifo_output_gather #(
+                .DATA_WIDTH (DATA_WIDTH),
+                .FIFO_CHANNEL (FIFO_CHANNEL),
+                .READ_CHANNEL (READ_CHANNEL)
+            ) U_GATHER (
+                .i_valid (out_new_vg_valid),
+                .i_data  (out_new_vg_data),
+                .o_valid (out_ord_vg_valid_next),
+                .o_data  (out_ord_vg_data_next)
+            );
+        end
+        else begin : G_GENERIC_OUTPUT
+            valid_gather #(
+                .DATA_WIDTH (DATA_WIDTH),
+                .ENTRIES    (OUT_ORDERING_VG_LEN)
+            ) U_VG_OUT (
+                .i_valid (out_new_vg_valid),
+                .i_data  (out_new_vg_data),
+                .o_valid (out_ord_vg_valid_next),
+                .o_data  (out_ord_vg_data_next)
+            );
+        end
+    endgenerate
 
 
 endmodule

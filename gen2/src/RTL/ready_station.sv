@@ -27,6 +27,12 @@ module ready_station #(
     parameter int STRUCT_FLOW_WINDOWS                   = 8,
     parameter int STRUCT_FLOW_PC_MAX_RANGE              = 16,
 
+    // Wakeup bandwidth, stored-instruction issue bandwidth and SRAM banking
+    // are independent. Banks use low entry-number bits (power of two).
+    parameter int STRUCT_IST_ISSUE_WIDTH               = STRUCT_EX_CORES,
+    parameter int STRUCT_IST_BANKS                     = 1 << $clog2(
+        (STRUCT_DECODE_NEW_INST > STRUCT_IST_ISSUE_WIDTH) ? STRUCT_DECODE_NEW_INST : STRUCT_IST_ISSUE_WIDTH),
+
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
@@ -67,26 +73,30 @@ module ready_station #(
     input  wire                                                                                      reset_n,
 
     // Executable (All phyreg in instruction are ready) Internal Instruction Input (IST)
-    input  wire [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               i_ist_ready_inst_valid,
-    output reg  [(STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE)-1:0]                               o_ist_ready_inst_get,
-    input  wire [((STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] i_ist_ready_inst_data,
+    input  wire [(STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH)-1:0]                               i_ist_ready_inst_valid,
+    output reg  [(STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH)-1:0]                               o_ist_ready_inst_get,
+    input  wire [((STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH) *(_BITWIDTH_EX_INST_WIDTH) )-1:0] i_ist_ready_inst_data,
     
     // Wait EX Instruction Output (EX)
     output reg  [STRUCT_EX_CORES-1:0]                                                                o_ex_wait_inst_valid,
     input  wire [STRUCT_EX_CORES-1:0]                                                                i_ex_wait_inst_get,
     output wire [(STRUCT_EX_CORES *(_BITWIDTH_EX_INST_WIDTH) )-1:0]                                  o_ex_wait_inst_data
 );
-    localparam INPUT_CHANNEL           = STRUCT_DECODE_NEW_INST+STRUCT_PRM_ENTRY_UPDATE;
+    localparam INPUT_CHANNEL           = STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH;
     localparam STARTPOINT_INST_EX_PATH = _BITWIDTH_STRUCT_FLOW_WINDOWS
                                          + IS_INST_PC_BITWIDTH;
 
     logic [INPUT_CHANNEL-1:0]                           ex_valid        [0:STRUCT_EX_PATH-1];
     logic [_BITWIDTH_STRUCT_EX_PATH-1:0]                compare_ex_path [0:INPUT_CHANNEL-1];
-    logic [INPUT_CHANNEL-1:0]                           gather_ex_path  [0:STRUCT_EX_PATH-1];
     logic [INPUT_CHANNEL-1:0]                           ex_fifos_ready  [0:STRUCT_EX_PATH-1];
     logic [STRUCT_EX_PATH-1:0]                          ex_fifo_ready;
-    logic [(INPUT_CHANNEL*_BITWIDTH_EX_INST_WIDTH)-1:0] gather_inst     [0:STRUCT_EX_PATH-1];
-    integer                                             ex_split, ex_fifo_ready_idx, input_position;
+    logic                                              accept_bundle;
+    integer                                             ex_split, input_position;
+
+    // IST transfers the whole bundle together. No path may capture it
+    // while another path holds the shared acknowledgement low.
+    assign accept_bundle = &ex_fifo_ready;
+    assign o_ist_ready_inst_get = {INPUT_CHANNEL{accept_bundle}};
 
     always_comb begin
         for (ex_split = 0; ex_split < STRUCT_EX_PATH; ex_split = ex_split+1)
@@ -99,7 +109,8 @@ module ready_station #(
 
         for (input_position = 0; input_position < INPUT_CHANNEL; input_position = input_position+1) begin
             for (ex_split = 0; ex_split < STRUCT_EX_PATH; ex_split = ex_split+1) begin
-                if (compare_ex_path[input_position] == ex_split) ex_valid[ex_split][input_position] = i_ist_ready_inst_valid[input_position];
+                if (compare_ex_path[input_position] == ex_split)
+                    ex_valid[ex_split][input_position] = i_ist_ready_inst_valid[input_position] && accept_bundle;
             end
         end
     end
@@ -115,32 +126,24 @@ module ready_station #(
     endfunction
 
     generate
+        // Common FIFO compacts sparse inputs and uses the optimized output gather.
         for (ex_split_gen = 0; ex_split_gen < STRUCT_EX_PATH; ex_split_gen = ex_split_gen+1) begin
-            valid_gather #(
-                .DATA_WIDTH(_BITWIDTH_EX_INST_WIDTH),
-                .ENTRIES   (INPUT_CHANNEL)
-            ) U_RS_GATHER (
-                .i_valid(ex_valid[ex_split_gen]),
-                .i_data (i_ist_ready_inst_data),
-                .o_valid(gather_ex_path[ex_split_gen]),
-                .o_data (gather_inst[ex_split_gen])
-            );
-        end
+            assign ex_fifo_ready[ex_split_gen] = &ex_fifos_ready[ex_split_gen];
 
-        for (ex_split_gen = 0; ex_split_gen < STRUCT_EX_PATH; ex_split_gen = ex_split_gen+1) begin
             fifo_multichan #(
                 .DATA_WIDTH    (_BITWIDTH_EX_INST_WIDTH),
                 .READ_CHANNEL  (STRUCT_RS_OUT_ENTRY[ex_split_gen]),
                 .WRITE_CHANNEL (INPUT_CHANNEL),
                 .MIN_FIFO_ENTRY(STRUCT_INST_STATE_ENTRIES),
-                .USE_BRAM      (1'b1)
+                .USE_BRAM      (1'b1),
+                .OPTIMIZED_INPUT_GATHER (1'b1)
             ) U_RS_FIFO (
                 .clk           (clk),
                 .reset_n       (reset_n),
                 .i_flush       (1'b0),
-                .i_push        (gather_ex_path[ex_split_gen]),
+                .i_push        (ex_valid[ex_split_gen]),
                 .o_push_ready  (ex_fifos_ready[ex_split_gen]),
-                .i_push_data   (gather_inst[ex_split_gen]),
+                .i_push_data   (i_ist_ready_inst_data),
                 .i_pop         (i_ex_wait_inst_get[ex_offset(ex_split_gen) +: STRUCT_RS_OUT_ENTRY[ex_split_gen]]),
                 .o_pop_valid   (o_ex_wait_inst_valid[ex_offset(ex_split_gen) +: STRUCT_RS_OUT_ENTRY[ex_split_gen]]),
                 .o_pop_data    (o_ex_wait_inst_data[(ex_offset(ex_split_gen)*_BITWIDTH_EX_INST_WIDTH) 
@@ -149,16 +152,5 @@ module ready_station #(
         end
 
     endgenerate
-
-    always_comb begin
-        ex_fifo_ready = {STRUCT_EX_PATH{1'b1}};
-
-        for (ex_fifo_ready_idx = 0; ex_fifo_ready_idx < STRUCT_EX_PATH; ex_fifo_ready_idx = ex_fifo_ready_idx+1) begin
-            if ( (&ex_fifos_ready[ex_fifo_ready_idx]) && (&ex_fifo_ready) ) ex_fifo_ready[ex_fifo_ready_idx] = 1'b1;
-            else ex_fifo_ready[ex_fifo_ready_idx] = 1'b0;
-        end
-
-        o_ist_ready_inst_get = {INPUT_CHANNEL{&ex_fifo_ready}};
-    end
 
 endmodule

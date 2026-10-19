@@ -166,6 +166,17 @@ module instruction_state_table #(
     logic [STRUCT_IST_ISSUE_WIDTH-1:0] issue_valid, issue_valid_next;
     logic [STRUCT_IST_ISSUE_WIDTH*_BITWIDTH_EX_INST_WIDTH-1:0] issue_data, issue_data_next;
     logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0] issue_num [STRUCT_IST_ISSUE_WIDTH], issue_num_next [STRUCT_IST_ISSUE_WIDTH];
+    // Two entries per issue lane: visible head plus one prefetched reserve.
+    // Arbitration uses reserve_valid only, never the current RS Get. A full
+    // lane may resume prefetch one cycle after popping, without a ready chain.
+    logic [STRUCT_IST_ISSUE_WIDTH-1:0] reserve_valid, reserve_valid_next;
+    logic [STRUCT_IST_ISSUE_WIDTH*_BITWIDTH_EX_INST_WIDTH-1:0] reserve_data, reserve_data_next;
+    logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0] reserve_num [STRUCT_IST_ISSUE_WIDTH], reserve_num_next [STRUCT_IST_ISSUE_WIDTH];
+    localparam int RESPONSE_RANK_WIDTH = $clog2(STRUCT_IST_BANKS+STRUCT_IST_ISSUE_WIDTH+1);
+    localparam int ISSUE_RANK_STAGES = $clog2(STRUCT_IST_ISSUE_WIDTH);
+    logic [RESPONSE_RANK_WIDTH-1:0] bank_rank [BANK_BITS+1][STRUCT_IST_BANKS];
+    logic [RESPONSE_RANK_WIDTH-1:0] lane_rank [ISSUE_RANK_STAGES+1][STRUCT_IST_ISSUE_WIDTH];
+    logic [STRUCT_IST_BANKS-1:0] rotated_response_valid;
     integer idx_internal_inst, idx_rs, idx_update, idx_entry;
     integer selected_bank, candidate_bank, selected_row, candidate_row, entry_num;
 
@@ -292,6 +303,32 @@ module instruction_state_table #(
         end
     endgenerate
 
+    // Parallel prefix ranks replace cascaded per-lane bank selection. Match
+    // the kth available bank to the kth lane with reserve space. Both masks
+    // depend only on registers, so RS Get cannot reach bank_take / SRAM reads.
+    always_comb begin
+        for (int offset = 0; offset < STRUCT_IST_BANKS; offset++) begin
+            rotated_response_valid[offset] = bank_response_valid[(int'(response_start)+offset) % STRUCT_IST_BANKS];
+            bank_rank[0][offset] = RESPONSE_RANK_WIDTH'(rotated_response_valid[offset]);
+        end
+        for (int stage_idx = 0; stage_idx < BANK_BITS; stage_idx++) begin
+            for (int offset = 0; offset < STRUCT_IST_BANKS; offset++) begin
+                bank_rank[stage_idx+1][offset] = bank_rank[stage_idx][offset];
+                if (offset >= (1 << stage_idx))
+                    bank_rank[stage_idx+1][offset] = bank_rank[stage_idx][offset]+bank_rank[stage_idx][offset-(1 << stage_idx)];
+            end
+        end
+        for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++)
+            lane_rank[0][lane] = RESPONSE_RANK_WIDTH'(!reserve_valid[lane]);
+        for (int stage_idx = 0; stage_idx < ISSUE_RANK_STAGES; stage_idx++) begin
+            for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) begin
+                lane_rank[stage_idx+1][lane] = lane_rank[stage_idx][lane];
+                if (lane >= (1 << stage_idx))
+                    lane_rank[stage_idx+1][lane] = lane_rank[stage_idx][lane]+lane_rank[stage_idx][lane-(1 << stage_idx)];
+            end
+        end
+    end
+
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
             active_entries <= '0; pending_entries <= '0; queued_entries <= '0;
@@ -299,11 +336,14 @@ module instruction_state_table #(
             alloc_start <= '0; response_start <= '0;
             bank_response_valid <= '0;
             issue_valid <= '0; issue_data <= '0;
+            reserve_valid <= '0; reserve_data <= '0;
             for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
                 bank_response_row[b] <= '0; request_count[b] <= '0; pending_start[b] <= '0;
                 for (int q = 0; q < 2; q++) request_row[b][q] <= '0;
             end
-            for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) issue_num[lane] <= '0;
+            for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) begin
+                issue_num[lane] <= '0; reserve_num[lane] <= '0;
+            end
         end
         else begin
             active_entries <= active_entries_next; pending_entries <= pending_entries_next;
@@ -312,12 +352,15 @@ module instruction_state_table #(
             alloc_start <= alloc_start_next; response_start <= response_start_next;
             bank_response_valid <= bank_response_valid_next;
             issue_valid <= issue_valid_next; issue_data <= issue_data_next;
+            reserve_valid <= reserve_valid_next; reserve_data <= reserve_data_next;
             for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
                 bank_response_row[b] <= bank_response_row_next[b];
                 request_count[b] <= request_count_next[b]; pending_start[b] <= pending_start_next[b];
                 for (int q = 0; q < 2; q++) request_row[b][q] <= request_row_next[b][q];
             end
-            for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) issue_num[lane] <= issue_num_next[lane];
+            for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) begin
+                issue_num[lane] <= issue_num_next[lane]; reserve_num[lane] <= reserve_num_next[lane];
+            end
         end
     end
 
@@ -336,6 +379,7 @@ module instruction_state_table #(
         bank_response_valid_next = bank_response_valid;
         issue_valid_next = issue_valid & ~i_rs_ready_inst_get[STRUCT_IST_ISSUE_WIDTH-1:0];
         issue_data_next = issue_data;
+        reserve_valid_next = reserve_valid; reserve_data_next = reserve_data;
         selected_bank = -1; candidate_bank = 0; selected_row = -1; candidate_row = 0; entry_num = 0;
         for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
             bank_write_row[b] = '0; bank_write_data[b] = '0;
@@ -344,7 +388,9 @@ module instruction_state_table #(
             request_count_next[b] = request_count[b]; pending_start_next[b] = pending_start[b];
             for (int q = 0; q < 2; q++) request_row_next[b][q] = request_row[b][q];
         end
-        for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) issue_num_next[lane] = issue_num[lane];
+        for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) begin
+            issue_num_next[lane] = issue_num[lane]; reserve_num_next[lane] = reserve_num[lane];
+        end
 
         for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
             ready_prm_update[idx_rs] = last_ready[idx_rs];
@@ -445,27 +491,46 @@ module instruction_state_table #(
             end
         end
 
-        // Each output lane is an elastic holding register. Partial Get only
-        // replaces accepted lanes; bank arbitration is round-robin and narrow.
+        // RS only consumes prepared heads. A stalled head retains its exact
+        // payload; a reserve moves forward on consumption. Keep IST ownership
+        // until this handshake, including instructions held in reserves.
         for (int lane = 0; lane < STRUCT_IST_ISSUE_WIDTH; lane++) begin
             if (issue_valid[lane] && i_rs_ready_inst_get[lane]) begin
                 active_entries_next[issue_num[lane]] = 1'b0;
                 pending_entries_next[issue_num[lane]] = 1'b0;
                 queued_entries_next[issue_num[lane]] = 1'b0;
+                issue_valid_next[lane] = reserve_valid[lane];
+                if (reserve_valid[lane]) begin
+                    issue_data_next[lane*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] =
+                        reserve_data[lane*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH];
+                    issue_num_next[lane] = reserve_num[lane];
+                end
+                reserve_valid_next[lane] = 1'b0;
             end
-            if (!issue_valid_next[lane]) begin
+            // Reserve space is tested BEFORE this cycle's pop. A late Get
+            // changes only where the prefetched payload lands, not selection.
+            if (reset_n && !reserve_valid[lane]) begin
                 selected_bank = -1;
                 for (int offset = 0; offset < STRUCT_IST_BANKS; offset++) begin
                     candidate_bank = (int'(response_start)+offset) % STRUCT_IST_BANKS;
-                    if (selected_bank < 0 && bank_response_valid[candidate_bank] && !bank_take[candidate_bank])
+                    if (rotated_response_valid[offset] &&
+                        bank_rank[BANK_BITS][offset] == lane_rank[ISSUE_RANK_STAGES][lane])
                         selected_bank = candidate_bank;
                 end
                 if (selected_bank >= 0) begin
                     bank_take[selected_bank] = 1'b1;
-                    issue_valid_next[lane] = 1'b1;
-                    issue_data_next[lane*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] = bank_read_data[selected_bank];
-                    issue_num_next[lane] = _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(
-                        int'(bank_response_row[selected_bank])*STRUCT_IST_BANKS+selected_bank);
+                    if (!issue_valid_next[lane]) begin
+                        issue_valid_next[lane] = 1'b1;
+                        issue_data_next[lane*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] = bank_read_data[selected_bank];
+                        issue_num_next[lane] = _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(
+                            int'(bank_response_row[selected_bank])*STRUCT_IST_BANKS+selected_bank);
+                    end
+                    else begin
+                        reserve_valid_next[lane] = 1'b1;
+                        reserve_data_next[lane*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] = bank_read_data[selected_bank];
+                        reserve_num_next[lane] = _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(
+                            int'(bank_response_row[selected_bank])*STRUCT_IST_BANKS+selected_bank);
+                    end
                     response_start_next = BANK_WIDTH'((selected_bank+1) % STRUCT_IST_BANKS);
                 end
             end

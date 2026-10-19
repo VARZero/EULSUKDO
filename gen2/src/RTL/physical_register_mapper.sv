@@ -27,7 +27,7 @@ module physical_register_mapper #(
     parameter int STRUCT_FLOW_WINDOWS                   = 8,
     parameter int STRUCT_FLOW_PC_MAX_RANGE              = 16,
     parameter int STRUCT_PRM_OUTPUT_FIFO_DEPTH          = 64,
-    parameter int STRUCT_PRM_INPUT_BUFFER_DEPTH         = 2,
+    parameter int STRUCT_PRM_INPUT_BUFFER_DEPTH         = 3,
 
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
@@ -92,12 +92,15 @@ module physical_register_mapper #(
 
     // Parameters require positive channel/buffer sizes and STRUCT_PHYREGS >= 2.
     localparam int WAIT_INPUTS                     = STRUCT_DECODE_NEW_INST*IS_INST_OPERANDS;
-    // One blocked bundle + one already-renamed NEL Stage 2 bundle.
+    // Keep one slot reserved for the already-renamed NEL Stage 2 bundle.
+    // Three slots allow one bundle/cycle with occupancy-only admission;
+    // a two-slot override is safe but can insert admission bubbles.
     // Deeper upstream pipelines require a larger buffer / reservation policy.
     localparam int INPUT_BUFFER_ENTRIES            = (STRUCT_PRM_INPUT_BUFFER_DEPTH < 2)? 2 : STRUCT_PRM_INPUT_BUFFER_DEPTH;
     localparam int _BITWIDTH_INPUT_BUNDLE           = WAIT_INPUTS*(_BITWIDTH_READY_PRM+1);
     localparam int _BITWIDTH_INPUT_BUFFER_ADDR      = $clog2(INPUT_BUFFER_ENTRIES);
     localparam int _BITWIDTH_INPUT_BUFFER_COUNT     = $clog2(INPUT_BUFFER_ENTRIES+1);
+    localparam int PREFIX_WIDTH                    = $clog2(WAIT_INPUTS+1);
     localparam int COUNTER_CHANNELS                = WAIT_INPUTS+1;
     localparam int OUTPUT_PUSH_CHANNELS            = STRUCT_PRM_ENTRY_BUFFER+WAIT_INPUTS;
     localparam int OUTPUT_FIFO_ENTRIES             = (STRUCT_PRM_OUTPUT_FIFO_DEPTH < OUTPUT_PUSH_CHANNELS)?
@@ -115,9 +118,7 @@ module physical_register_mapper #(
     logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0] wait_input_istentry   [0:WAIT_INPUTS-1];
     logic [WAIT_INPUTS-1:0]                         wait_input_valid;
     logic [WAIT_INPUTS-1:0]                         wait_ready_valid;
-    logic [STRUCT_PHYREGS-1:0]                      wait_map_list         [0:WAIT_INPUTS-1];
-    logic [WAIT_INPUTS-1:0]                         wait_map_phyreg       [0:STRUCT_PHYREGS-1];
-    integer                                        wait_prefix_count     [0:WAIT_INPUTS-1];
+    logic [PREFIX_WIDTH-1:0]                       wait_prefix_count     [0:WAIT_INPUTS-1];
     logic [WAIT_INPUTS-1:0]                         wait_suffix_valid;
 
     // Capture the complete IST input (Valid + Data) before mapping it.
@@ -128,7 +129,16 @@ module physical_register_mapper #(
     logic [_BITWIDTH_INPUT_BUFFER_COUNT-1:0]       input_count, input_count_next;
     wire  [_BITWIDTH_INPUT_BUNDLE-1:0]             input_buffer_read_data;
     wire  [_BITWIDTH_INPUT_BUNDLE-1:0]             input_buffer_write_data;
-    logic                                         input_push, input_fire, input_stall;
+    logic                                         input_push, input_pop, input_fire, input_stall;
+
+    // Preprocess -> commit pipeline. Only request identity / grouping crosses
+    // this boundary. Ready bits and mapping counters are read live at commit:
+    // a WBC pulse during preprocessing or a stall must never become stale.
+    logic                                         map_stage_valid;
+    logic [WAIT_INPUTS-1:0]                        prepare_valid, map_valid;
+    logic [WAIT_INPUTS*_BITWIDTH_READY_PRM-1:0]     map_data;
+    logic [PREFIX_WIDTH-1:0]                       prepare_prefix [0:WAIT_INPUTS-1];
+    logic [WAIT_INPUTS-1:0]                        prepare_suffix;
     logic                                         input_map_fit;
 
     // Ready remains set until allocation of a new lifetime, so a one-cycle WBC
@@ -176,7 +186,6 @@ module physical_register_mapper #(
     assign o_ist_ready_phyreg_data    = output_data;
     assign input_buffer_write_data   = {i_ist_wait_phyreg_valid, i_ist_wait_phyreg_data};
 
-    integer idx_input, idx_previous, idx_map0, idx_map1;
     integer idx_drain, drain_scan;
     integer idx_address;
     integer idx_push;
@@ -186,48 +195,42 @@ module physical_register_mapper #(
     integer drain_count;
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0] target_phyreg;
 
+    // Stage 1: deduplicate and count same-PHYREG requests, independently of
+    // completion state. All requests for a PHYREG see the same live Ready bit
+    // in stage 2, so their prefix/suffix remain valid even if WBC arrives later.
     always_comb begin
-        // Split Buffered Input Head and Gather Wait Requests
-        wait_input_valid = input_buffer_read_data[(WAIT_INPUTS*_BITWIDTH_READY_PRM) +: WAIT_INPUTS]
-                           & {WAIT_INPUTS{reset_n && (input_count != 0)}};
-        wait_ready_valid = 0;
-        wait_suffix_valid = 0;
-        for (idx_input = 0; idx_input < WAIT_INPUTS; idx_input = idx_input+1) begin
-            wait_input_list[idx_input] =
-                input_buffer_read_data[(_BITWIDTH_READY_PRM*idx_input) +: _BITWIDTH_READY_PRM];
-            wait_input_phyreg[idx_input] = wait_input_list[idx_input][0 +: _BITWIDTH_STRUCT_PHYREGS];
-            wait_input_istentry[idx_input] =
-                wait_input_list[idx_input][_BITWIDTH_STRUCT_PHYREGS +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
-
-            // One notification updates every matching operand in the IST entry.
-            for (idx_previous = 0; idx_previous < idx_input; idx_previous = idx_previous+1) begin
-                if (wait_input_valid[idx_previous] && (wait_input_list[idx_input] == wait_input_list[idx_previous]))
-                    wait_input_valid[idx_input] = 1'b0;
+        prepare_valid = input_buffer_read_data[WAIT_INPUTS*_BITWIDTH_READY_PRM +: WAIT_INPUTS];
+        prepare_suffix = '0;
+        for (int lane = 0; lane < WAIT_INPUTS; lane++) begin
+            for (int prev = 0; prev < lane; prev++) begin
+                if (input_buffer_read_data[WAIT_INPUTS*_BITWIDTH_READY_PRM+prev] &&
+                    input_buffer_read_data[prev*_BITWIDTH_READY_PRM +: _BITWIDTH_READY_PRM] ==
+                    input_buffer_read_data[lane*_BITWIDTH_READY_PRM +: _BITWIDTH_READY_PRM])
+                    prepare_valid[lane] = 1'b0;
             end
-            wait_map_list[idx_input] = 0;
-            wait_ready_valid[idx_input] = wait_input_valid[idx_input] && phyreg_ready[wait_input_phyreg[idx_input]];
-            if (wait_input_valid[idx_input] && !wait_ready_valid[idx_input])
-                wait_map_list[idx_input][wait_input_phyreg[idx_input]] = 1'b1;
-
         end
-
-        // Transpose Input -> PHYREG into PHYREG -> Inputs.
-        for (idx_map0 = 0; idx_map0 < STRUCT_PHYREGS; idx_map0 = idx_map0+1) begin
-            for (idx_map1 = 0; idx_map1 < WAIT_INPUTS; idx_map1 = idx_map1+1)
-                wait_map_phyreg[idx_map0][idx_map1] = wait_map_list[idx_map1][idx_map0];
-        end
-
-        // Prefix gives the append slot; only the last request writes the counter.
-        for (idx_input = 0; idx_input < WAIT_INPUTS; idx_input = idx_input+1) begin
-            wait_prefix_count[idx_input] = 0;
-            for (idx_previous = 0; idx_previous < WAIT_INPUTS; idx_previous = idx_previous+1) begin
-                if (wait_input_valid[idx_input] && wait_map_phyreg[wait_input_phyreg[idx_input]][idx_previous]) begin
-                    if (idx_previous < idx_input)
-                        wait_prefix_count[idx_input] = wait_prefix_count[idx_input]+1;
-                    if (idx_previous > idx_input)
-                        wait_suffix_valid[idx_input] = 1'b1;
+        for (int lane = 0; lane < WAIT_INPUTS; lane++) begin
+            prepare_prefix[lane] = '0;
+            for (int other = 0; other < WAIT_INPUTS; other++) begin
+                if (prepare_valid[lane] && prepare_valid[other] &&
+                    input_buffer_read_data[lane*_BITWIDTH_READY_PRM +: _BITWIDTH_STRUCT_PHYREGS] ==
+                    input_buffer_read_data[other*_BITWIDTH_READY_PRM +: _BITWIDTH_STRUCT_PHYREGS]) begin
+                    if (other < lane) prepare_prefix[lane] = prepare_prefix[lane]+1'b1;
+                    if (other > lane) prepare_suffix[lane] = 1'b1;
                 end
             end
+        end
+    end
+
+    always_comb begin
+        // Stage 2: recheck current Ready / occupancy and commit atomically.
+        wait_input_valid = map_valid & {WAIT_INPUTS{reset_n && map_stage_valid}};
+        wait_ready_valid = 0;
+        for (int idx_input = 0; idx_input < WAIT_INPUTS; idx_input = idx_input+1) begin
+            wait_input_list[idx_input] = map_data[(_BITWIDTH_READY_PRM*idx_input) +: _BITWIDTH_READY_PRM];
+            wait_input_phyreg[idx_input] = wait_input_list[idx_input][0 +: _BITWIDTH_STRUCT_PHYREGS];
+            wait_input_istentry[idx_input] = wait_input_list[idx_input][_BITWIDTH_STRUCT_PHYREGS +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
+            wait_ready_valid[idx_input] = wait_input_valid[idx_input] && phyreg_ready[wait_input_phyreg[idx_input]];
         end
 
         // Select Completed Physical Register
@@ -255,12 +258,15 @@ module physical_register_mapper #(
             mapping_write_data[(_BITWIDTH_STRUCT_INST_STATE_ENTRIES*idx_address) +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] = wait_input_istentry[idx_address];
         end
 
+    end
+
+    always_comb begin
         // Check the Whole Input Bundle Before Updating Any Mapping
         input_map_fit = 1'b1;
-        for (idx_input = 0; idx_input < WAIT_INPUTS; idx_input = idx_input+1) begin
+        for (int idx_input = 0; idx_input < WAIT_INPUTS; idx_input = idx_input+1) begin
             if (wait_input_valid[idx_input] && !wait_ready_valid[idx_input]) begin
                 if ((int'(counter_read_data[(_BITWIDTH_STRUCT_PRM_ENTRY_BUFFER*(idx_input+1)) +: _BITWIDTH_STRUCT_PRM_ENTRY_BUFFER])
-                     +wait_prefix_count[idx_input]+1) > STRUCT_PRM_ENTRY_BUFFER)
+                     +int'(wait_prefix_count[idx_input])+1) > STRUCT_PRM_ENTRY_BUFFER)
                     input_map_fit = 1'b0;
             end
         end
@@ -274,7 +280,7 @@ module physical_register_mapper #(
         drain_count = 0;
         if (drain_valid) drain_count = int'(counter_read_data[0 +: _BITWIDTH_STRUCT_PRM_ENTRY_BUFFER]);
         drain_fire = drain_valid && (drain_count != 0) && (&output_push_ready);
-        input_fire = reset_n && (input_count != 0) && input_map_fit &&
+        input_fire = reset_n && map_stage_valid && input_map_fit &&
                      (!(|wait_ready_valid) || (&output_push_ready));
 
         if (drain_fire) begin
@@ -296,20 +302,18 @@ module physical_register_mapper #(
             end
         end
 
-        // Input Buffer and PHYREG Allocation Backpressure
-        // Do not mask IST input with input_stall: an already-renamed Stage 2
-        // bundle may arrive once after new allocation stops. Reserve its slot.
-        // NEL must stop EVERY Stage 1 -> Stage 2 transfer when offers are absent,
-        // including instructions with no destination register, and deliver each
-        // Stage 2 bundle to IST only once. No extra registered IST -> PRM stage.
-        input_stall = !reset_n || ((input_count != 0) && !input_fire) ||
-                      ((int'(input_count)-(input_fire? 1 : 0)) >= (INPUT_BUFFER_ENTRIES-1));
+        // Stop upstream from REGISTERED occupancy only: no commit / output
+        // FIFO ready path may propagate combinationally into NEL admission.
+        // Reserve one slot for the already-renamed NEL Stage 2 bundle. The
+        // current IST push can consume the last unreserved slot on this edge.
+        input_stall = !reset_n || (input_count >= _BITWIDTH_INPUT_BUFFER_COUNT'(INPUT_BUFFER_ENTRIES-1));
+        input_pop = reset_n && (input_count != 0) && (!map_stage_valid || input_fire);
         input_push = reset_n && (|i_ist_wait_phyreg_valid) &&
-                     ((input_count < INPUT_BUFFER_ENTRIES) || input_fire);
+                     ((input_count < _BITWIDTH_INPUT_BUFFER_COUNT'(INPUT_BUFFER_ENTRIES)) || input_pop);
         input_read_ptr_next = input_read_ptr;
         input_write_ptr_next = input_write_ptr;
-        input_count_next = _BITWIDTH_INPUT_BUFFER_COUNT'(int'(input_count)+(input_push? 1 : 0)-(input_fire? 1 : 0));
-        if (input_fire) input_read_ptr_next = _BITWIDTH_INPUT_BUFFER_ADDR'((int'(input_read_ptr)+1)%INPUT_BUFFER_ENTRIES);
+        input_count_next = _BITWIDTH_INPUT_BUFFER_COUNT'(int'(input_count)+(input_push? 1 : 0)-(input_pop? 1 : 0));
+        if (input_pop) input_read_ptr_next = _BITWIDTH_INPUT_BUFFER_ADDR'((int'(input_read_ptr)+1)%INPUT_BUFFER_ENTRIES);
         if (input_push) input_write_ptr_next = _BITWIDTH_INPUT_BUFFER_ADDR'((int'(input_write_ptr)+1)%INPUT_BUFFER_ENTRIES);
 
         // Mapping Updates and Next State
@@ -336,14 +340,16 @@ module physical_register_mapper #(
             else drain_start_next = drain_phyreg+1'b1;
         end
 
-        // Commit All Unfinished Requests in the Input Head Together
+        // Commit all unfinished requests in the pipeline stage together.
+        // WBC on this same edge sets phyreg_ready while these map writes land;
+        // the newly registered row is eligible for drain on the following cycle.
         // Ready requests go directly to the output FIFO above. On input overflow
         // no request in this bundle changes the map or counter; the head waits.
         for (idx_wait = 0; idx_wait < WAIT_INPUTS; idx_wait = idx_wait+1) begin
             if (input_fire && wait_input_valid[idx_wait] && !wait_ready_valid[idx_wait]) begin
                 target_phyreg = wait_input_phyreg[idx_wait];
                 counter_base = int'(counter_read_data[(_BITWIDTH_STRUCT_PRM_ENTRY_BUFFER*(idx_wait+1)) +: _BITWIDTH_STRUCT_PRM_ENTRY_BUFFER]);
-                append_position = counter_base+wait_prefix_count[idx_wait];
+                append_position = counter_base+int'(wait_prefix_count[idx_wait]);
                 mapping_write_valid[append_position][idx_wait] = 1'b1;
                 mapping_active_next[target_phyreg] = 1'b1;
                 if (!wait_suffix_valid[idx_wait]) begin
@@ -431,6 +437,11 @@ module physical_register_mapper #(
             input_read_ptr <= 0;
             input_write_ptr <= 0;
             input_count <= 0;
+            map_stage_valid <= 0;
+            map_valid <= 0;
+            map_data <= 0;
+            wait_suffix_valid <= 0;
+            for (int lane = 0; lane < WAIT_INPUTS; lane++) wait_prefix_count[lane] <= 0;
             phyreg_ready <= {{(STRUCT_PHYREGS-1){1'b0}}, 1'b1};
             mapping_active <= 0;
             retired_pending <= 0;
@@ -443,6 +454,14 @@ module physical_register_mapper #(
             if ((|i_ist_wait_phyreg_valid) && !input_push)
                 $error("PRM input buffer overflow: NEL must stop on missing PHYREG offers and IST must send each admitted bundle once.");
 `endif
+            if (input_pop) begin
+                map_stage_valid <= 1'b1;
+                map_valid <= prepare_valid;
+                map_data <= input_buffer_read_data[0 +: WAIT_INPUTS*_BITWIDTH_READY_PRM];
+                wait_suffix_valid <= prepare_suffix;
+                for (int lane = 0; lane < WAIT_INPUTS; lane++) wait_prefix_count[lane] <= prepare_prefix[lane];
+            end
+            else if (input_fire) map_stage_valid <= 1'b0;
             input_read_ptr <= input_read_ptr_next;
             input_write_ptr <= input_write_ptr_next;
             input_count <= input_count_next;

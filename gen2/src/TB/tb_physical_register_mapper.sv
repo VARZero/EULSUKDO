@@ -31,7 +31,8 @@ module tb_physical_register_mapper #(
     physical_register_mapper #(
         .STRUCT_DECODE_NEW_INST(DECODE), .STRUCT_PRM_ENTRY_UPDATE(UPDATES),
         .STRUCT_PHYREGS(PHYREGS), .STRUCT_INST_STATE_ENTRIES(IST_ENTRIES),
-        .STRUCT_PRM_ENTRY_BUFFER(4), .STRUCT_PRM_OUTPUT_FIFO_DEPTH(8)
+        .STRUCT_PRM_ENTRY_BUFFER(4), .STRUCT_PRM_OUTPUT_FIFO_DEPTH(8),
+        .STRUCT_PRM_INPUT_BUFFER_DEPTH(2)
     ) dut (
         .clk(clk), .reset_n(reset_n),
         .i_ist_wait_phyreg_valid(wait_valid), .i_ist_wait_phyreg_data(wait_data),

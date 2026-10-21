@@ -120,10 +120,11 @@ module instruction_state_table #(
     logic [STRUCT_DECODE_NEW_INST-1:0]                         ready_is_entries;
     logic [STRUCT_DECODE_NEW_INST-1:0]                         bypass_valid, bypass_valid_next;
     logic [(STRUCT_DECODE_NEW_INST*_BITWIDTH_EX_INST_WIDTH)-1:0] bypass_data, bypass_data_next;
+    logic [STRUCT_DECODE_NEW_INST-1:0] bypass_reserve_valid, bypass_reserve_valid_next;
+    logic [(STRUCT_DECODE_NEW_INST*_BITWIDTH_EX_INST_WIDTH)-1:0] bypass_reserve_data, bypass_reserve_data_next;
     logic [(_BITWIDTH_PHY_RS_INST*STRUCT_DECODE_NEW_INST)-1:0] rs_phyregs;
     logic [STRUCT_DECODE_NEW_INST-1:0]                         ready_nel_update        [0:IS_INST_OPERANDS-1];
 
-    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]                       prm_update_phyreg       [0:STRUCT_PRM_ENTRY_UPDATE-1];
     logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0]            prm_update_istnum       [0:STRUCT_PRM_ENTRY_UPDATE-1];
     logic [(_BITWIDTH_STRUCT_INST_STATE_ENTRIES*STRUCT_PRM_ENTRY_UPDATE)-1:0]
                                                                prm_update_istnum_all;
@@ -134,10 +135,14 @@ module instruction_state_table #(
     logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        ready_prm_update        [0:IS_INST_OPERANDS-1];
     logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        last_ready              [0:IS_INST_OPERANDS-1];
     logic [IS_INST_OPERANDS-1:0]                               ready_check_section;
-    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]                       ready_check_phyreg_target;
 
     logic                                                     nel_accept_enable;
     logic [STRUCT_PRM_ENTRY_UPDATE-1:0]                        prm_update_write;
+    logic [STRUCT_PRM_ENTRY_UPDATE-1:0] prm_stage_valid, prm_stage_valid_next;
+    logic [_BITWIDTH_STRUCT_PHYREGS-1:0] raw_prm_phyreg [STRUCT_PRM_ENTRY_UPDATE];
+    logic [_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0] raw_prm_entry [STRUCT_PRM_ENTRY_UPDATE];
+    wire [STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_STRUCT_INST_STATE_ENTRIES-1:0] raw_prm_entry_all;
+    logic [STRUCT_PRM_ENTRY_UPDATE-1:0] prm_hit [IS_INST_OPERANDS], prm_hit_next [IS_INST_OPERANDS];
     logic [STRUCT_INST_STATE_ENTRIES-1:0]                     active_entries, active_entries_next;
     logic [STRUCT_INST_STATE_ENTRIES-1:0]                     pending_entries, pending_entries_next;
     localparam int BANK_BITS = $clog2(STRUCT_IST_BANKS);
@@ -151,6 +156,8 @@ module instruction_state_table #(
     localparam int FREE_BANK_COUNT_WIDTH = $clog2(STRUCT_IST_BANKS+1);
 
     logic [STRUCT_INST_STATE_ENTRIES-1:0] queued_entries, queued_entries_next;
+    logic [BANK_ROWS-1:0] pending_pick [STRUCT_IST_BANKS];
+    logic [ROW_WIDTH-1:0] pending_pick_row [STRUCT_IST_BANKS];
     logic [BANK_WIDTH-1:0] alloc_start, alloc_start_next, response_start, response_start_next;
     logic [STRUCT_IST_BANKS-1:0] bank_write, bank_read, bank_response_valid, bank_response_valid_next, bank_take;
     logic [ROW_WIDTH-1:0] bank_write_row [STRUCT_IST_BANKS];
@@ -177,7 +184,7 @@ module instruction_state_table #(
     logic [RESPONSE_RANK_WIDTH-1:0] lane_rank [ISSUE_RANK_STAGES+1][STRUCT_IST_ISSUE_WIDTH];
     logic [STRUCT_IST_BANKS-1:0] rotated_response_valid;
     integer idx_internal_inst, idx_rs, idx_update, idx_entry;
-    integer selected_bank, candidate_bank, selected_row, candidate_row, entry_num;
+    integer selected_bank, candidate_bank;
 
     initial begin
         if (STRUCT_IST_ISSUE_WIDTH < 1 || STRUCT_IST_BANKS < STRUCT_DECODE_NEW_INST ||
@@ -383,26 +390,76 @@ module instruction_state_table #(
         return bank_count[1] >= FREE_BANK_COUNT_WIDTH'(STRUCT_DECODE_NEW_INST);
     endfunction
 
-    // Admission reserves a complete bundle in the ready bypass register. Keeping
-    // this wiring outside the NEL-consuming block also makes that independence
-    // visible to simulators when NEL gates its Valid with our Get.
-    assign nel_accept_enable = reset_n &&
-        (&allocate_valid) &&
-        !(|(bypass_valid & ~i_rs_ready_inst_get[STRUCT_IST_ISSUE_WIDTH +: STRUCT_DECODE_NEW_INST]));
+    // Two slots per bypass lane reserve one whole incoming bundle using only
+    // registered occupancy. RS Get cannot propagate into NEL admission.
+    assign nel_accept_enable = reset_n && (&allocate_valid) && !(|bypass_reserve_valid);
     assign o_nel_new_inst_get = {STRUCT_DECODE_NEW_INST{nel_accept_enable}};
 
-    // PRM read addresses are pure input wiring, independent of the ready checker.
-    genvar prm_idx;
-    generate
-        for (prm_idx = 0; prm_idx < STRUCT_PRM_ENTRY_UPDATE; prm_idx = prm_idx+1) begin : G_PRM_INPUT
-            assign prm_update_phyreg[prm_idx] =
-                i_prm_ready_phyreg_data[(_BITWIDTH_READY_PRM*prm_idx) +: _BITWIDTH_STRUCT_PHYREGS];
-            assign prm_update_istnum[prm_idx] =
-                i_prm_ready_phyreg_data[(_BITWIDTH_READY_PRM*prm_idx)+_BITWIDTH_STRUCT_PHYREGS +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
-            assign prm_update_istnum_all[(_BITWIDTH_STRUCT_INST_STATE_ENTRIES*prm_idx) +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
-                prm_update_istnum[prm_idx];
+    // Notification stage A: source lookup and operand matching. Only identity
+    // and newly completed operand bits cross the register; ready flags are read
+    // LIVE in stage B, so adjacent notifications never overwrite prior progress.
+    for (genvar p = 0; p < STRUCT_PRM_ENTRY_UPDATE; p++) begin : G_PRM_INPUT
+        assign raw_prm_phyreg[p] = i_prm_ready_phyreg_data[p*_BITWIDTH_READY_PRM +: _BITWIDTH_STRUCT_PHYREGS];
+        assign raw_prm_entry[p] = i_prm_ready_phyreg_data[p*_BITWIDTH_READY_PRM+_BITWIDTH_STRUCT_PHYREGS +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
+        assign raw_prm_entry_all[p*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] = raw_prm_entry[p];
+        assign prm_update_istnum_all[p*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] = prm_update_istnum[p];
+    end
+    always_comb begin
+        prm_stage_valid_next = '0;
+        for (int operand = 0; operand < IS_INST_OPERANDS; operand++) prm_hit_next[operand] = '0;
+        for (int p = 0; p < STRUCT_PRM_ENTRY_UPDATE; p++) begin
+            if (reset_n && i_prm_ready_phyreg_valid[p] && int'(raw_prm_entry[p]) < STRUCT_INST_STATE_ENTRIES)
+                prm_stage_valid_next[p] = active_entries[raw_prm_entry[p]];
+            for (int operand = 0; operand < IS_INST_OPERANDS; operand++) begin
+                for (int other = 0; other < STRUCT_PRM_ENTRY_UPDATE; other++) begin
+                    if (i_prm_ready_phyreg_valid[other] && raw_prm_entry[p] == raw_prm_entry[other] &&
+                        check_phyreg_all[(p*IS_INST_OPERANDS+operand)*_BITWIDTH_STRUCT_PHYREGS +: _BITWIDTH_STRUCT_PHYREGS] == raw_prm_phyreg[other])
+                        prm_hit_next[operand][p] = 1'b1;
+                end
+            end
         end
-    endgenerate
+    end
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            prm_stage_valid <= '0;
+            for (int operand = 0; operand < IS_INST_OPERANDS; operand++) prm_hit[operand] <= '0;
+            for (int p = 0; p < STRUCT_PRM_ENTRY_UPDATE; p++) prm_update_istnum[p] <= '0;
+        end else begin
+            prm_stage_valid <= prm_stage_valid_next;
+            for (int operand = 0; operand < IS_INST_OPERANDS; operand++) prm_hit[operand] <= prm_hit_next[operand];
+            for (int p = 0; p < STRUCT_PRM_ENTRY_UPDATE; p++) prm_update_istnum[p] <= raw_prm_entry[p];
+        end
+    end
+
+    // Bank-local balanced first-set trees, with direct one-hot state updates.
+    // The request address encoder is not on the queued/pending feedback path.
+    function automatic logic [BANK_ROWS-1:0] first_pending(input logic [BANK_ROWS-1:0] bits_in);
+        logic [BANK_ROWS-1:0] tree [2*FREE_ROW_LEAVES];
+        for (int leaf = 0; leaf < FREE_ROW_LEAVES; leaf++) begin
+            tree[FREE_ROW_LEAVES+leaf] = '0;
+            if (leaf < BANK_ROWS) tree[FREE_ROW_LEAVES+leaf][leaf] = bits_in[leaf];
+        end
+        for (int node = FREE_ROW_LEAVES-1; node > 0; node--)
+            tree[node] = (|tree[2*node]) ? tree[2*node] : tree[2*node+1];
+        return tree[1];
+    endfunction
+    for (genvar b = 0; b < STRUCT_IST_BANKS; b++) begin : G_PENDING_SELECT
+        logic [BANK_ROWS-1:0] eligible, after_cursor, preferred;
+        always_comb begin
+            eligible = '0; after_cursor = '0;
+            for (int row = 0; row < BANK_ROWS; row++) begin
+                if (row*STRUCT_IST_BANKS+b < STRUCT_INST_STATE_ENTRIES) begin
+                    eligible[row] = pending_entries[row*STRUCT_IST_BANKS+b] && !queued_entries[row*STRUCT_IST_BANKS+b];
+                    after_cursor[row] = eligible[row] && ROW_WIDTH'(row) >= pending_start[b];
+                end
+            end
+            preferred = first_pending(after_cursor);
+            pending_pick[b] = (|after_cursor) ? preferred : first_pending(eligible);
+            pending_pick_row[b] = '0;
+            for (int row = 0; row < BANK_ROWS; row++)
+                pending_pick_row[b] |= {ROW_WIDTH{pending_pick[b][row]}} & ROW_WIDTH'(row);
+        end
+    end
 
     // Parallel prefix ranks replace cascaded per-lane bank selection. Match
     // the kth available bank to the kth lane with reserve space. Both masks
@@ -434,6 +491,7 @@ module instruction_state_table #(
         if (!reset_n) begin
             active_entries <= '0; pending_entries <= '0; queued_entries <= '0;
             bypass_valid <= '0; bypass_data <= '0;
+            bypass_reserve_valid <= '0; bypass_reserve_data <= '0;
             alloc_start <= '0; response_start <= '0;
             bank_response_valid <= '0;
             issue_valid <= '0; issue_data <= '0;
@@ -450,6 +508,7 @@ module instruction_state_table #(
             active_entries <= active_entries_next; pending_entries <= pending_entries_next;
             queued_entries <= queued_entries_next;
             bypass_valid <= bypass_valid_next; bypass_data <= bypass_data_next;
+            bypass_reserve_valid <= bypass_reserve_valid_next; bypass_reserve_data <= bypass_reserve_data_next;
             alloc_start <= alloc_start_next; response_start <= response_start_next;
             bank_response_valid <= bank_response_valid_next;
             issue_valid <= issue_valid_next; issue_data <= issue_data_next;
@@ -471,9 +530,18 @@ module instruction_state_table #(
         pending_entries_next = pending_entries;
         prm_update_write     = '0;
         ready_check_section  = '0;
-        ready_check_phyreg_target = '0;
         bypass_valid_next = bypass_valid & ~i_rs_ready_inst_get[STRUCT_IST_ISSUE_WIDTH +: STRUCT_DECODE_NEW_INST];
         bypass_data_next = bypass_data;
+        bypass_reserve_valid_next = bypass_reserve_valid;
+        bypass_reserve_data_next = bypass_reserve_data;
+        for (int lane = 0; lane < STRUCT_DECODE_NEW_INST; lane++) begin
+            if (!bypass_valid_next[lane] && bypass_reserve_valid[lane]) begin
+                bypass_valid_next[lane] = 1'b1;
+                bypass_data_next[lane*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] =
+                    bypass_reserve_data[lane*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH];
+                bypass_reserve_valid_next[lane] = 1'b0;
+            end
+        end
         queued_entries_next = queued_entries;
         alloc_start_next = alloc_start; response_start_next = response_start;
         bank_write = '0; bank_read = '0; bank_take = '0;
@@ -481,7 +549,7 @@ module instruction_state_table #(
         issue_valid_next = issue_valid & ~i_rs_ready_inst_get[STRUCT_IST_ISSUE_WIDTH-1:0];
         issue_data_next = issue_data;
         reserve_valid_next = reserve_valid; reserve_data_next = reserve_data;
-        selected_bank = -1; candidate_bank = 0; selected_row = -1; candidate_row = 0; entry_num = 0;
+        selected_bank = -1; candidate_bank = 0;
         for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
             bank_write_row[b] = '0; bank_write_data[b] = '0;
             bank_read_row[b] = bank_response_row[b];
@@ -530,8 +598,13 @@ module instruction_state_table #(
             end
 
             if (ready_is_entries[idx_internal_inst]) begin
-                bypass_valid_next[idx_internal_inst] = 1'b1;
-                bypass_data_next[idx_internal_inst*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] = target_ist_entry[idx_internal_inst];
+                if (!bypass_valid_next[idx_internal_inst]) begin
+                    bypass_valid_next[idx_internal_inst] = 1'b1;
+                    bypass_data_next[idx_internal_inst*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] = target_ist_entry[idx_internal_inst];
+                end else begin
+                    bypass_reserve_valid_next[idx_internal_inst] = 1'b1;
+                    bypass_reserve_data_next[idx_internal_inst*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] = target_ist_entry[idx_internal_inst];
+                end
             end
             o_rs_ready_inst_data[(STRUCT_IST_ISSUE_WIDTH*_BITWIDTH_EX_INST_WIDTH)+(_BITWIDTH_EX_INST_WIDTH*idx_internal_inst)
                 +: _BITWIDTH_EX_INST_WIDTH] = bypass_data[idx_internal_inst*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH];
@@ -560,28 +633,19 @@ module instruction_state_table #(
         for (idx_internal_inst = 0; idx_internal_inst < STRUCT_PRM_ENTRY_UPDATE; idx_internal_inst = idx_internal_inst+1) begin
             // Only the first valid channel for an active IST entry writes it.
             // Merge every notification for that entry before the single write.
-            if (reset_n && i_prm_ready_phyreg_valid[idx_internal_inst] &&
+            if (reset_n && prm_stage_valid[idx_internal_inst] &&
                 (int'(prm_update_istnum[idx_internal_inst]) < STRUCT_INST_STATE_ENTRIES)) begin
                 prm_update_write[idx_internal_inst] = active_entries[prm_update_istnum[idx_internal_inst]];
             end
             for (idx_update = 0; idx_update < idx_internal_inst; idx_update = idx_update+1) begin
-                if (i_prm_ready_phyreg_valid[idx_update] &&
+                if (prm_stage_valid[idx_update] &&
                     (prm_update_istnum[idx_update] == prm_update_istnum[idx_internal_inst])) begin
                     prm_update_write[idx_internal_inst] = 1'b0;
                 end
             end
 
             for (idx_rs = 0; idx_rs < IS_INST_OPERANDS; idx_rs = idx_rs+1) begin
-                ready_check_section[idx_rs] = last_ready[idx_rs][idx_internal_inst];
-                ready_check_phyreg_target = 
-                    check_phyreg_all[(_BITWIDTH_STRUCT_PHYREGS*((IS_INST_OPERANDS*idx_internal_inst)+idx_rs)) +: _BITWIDTH_STRUCT_PHYREGS];
-                for (idx_update = 0; idx_update < STRUCT_PRM_ENTRY_UPDATE; idx_update = idx_update+1) begin
-                    if (i_prm_ready_phyreg_valid[idx_update] &&
-                        (prm_update_istnum[idx_update] == prm_update_istnum[idx_internal_inst]) &&
-                        (ready_check_phyreg_target == prm_update_phyreg[idx_update])) begin
-                        ready_check_section[idx_rs] = 1'b1;
-                    end
-                end
+                ready_check_section[idx_rs] = last_ready[idx_rs][idx_internal_inst] | prm_hit[idx_rs][idx_internal_inst];
                 ready_prm_update[idx_rs][idx_internal_inst] = ready_check_section[idx_rs];
             end
 
@@ -651,22 +715,16 @@ module instruction_state_table #(
             end
             // PRM pulses accumulate in pending even when the address FIFO is
             // full. queued remains set through SRAM response and RS acceptance.
-            selected_row = -1;
-            for (int offset = 0; offset < BANK_ROWS; offset++) begin
-                candidate_row = int'(pending_start[b])+offset;
-                if (candidate_row >= BANK_ROWS) candidate_row = candidate_row-BANK_ROWS;
-                entry_num = candidate_row*STRUCT_IST_BANKS+b;
-                if (entry_num < STRUCT_INST_STATE_ENTRIES) begin
-                    if (selected_row < 0 && pending_entries[entry_num] && !queued_entries[entry_num])
-                        selected_row = candidate_row;
-                end
-            end
-            if (reset_n && selected_row >= 0 && request_count_next[b] < 2) begin
-                request_row_next[b][request_count_next[b][0]] = ROW_WIDTH'(selected_row);
+            if (reset_n && (|pending_pick[b]) && request_count_next[b] < 2) begin
+                request_row_next[b][request_count_next[b][0]] = pending_pick_row[b];
                 request_count_next[b] = request_count_next[b]+1'b1;
-                queued_entries_next[selected_row*STRUCT_IST_BANKS+b] = 1'b1;
-                pending_entries_next[selected_row*STRUCT_IST_BANKS+b] = 1'b0;
-                pending_start_next[b] = (selected_row == BANK_ROWS-1) ? '0 : ROW_WIDTH'(selected_row+1);
+                for (int row = 0; row < BANK_ROWS; row++) begin
+                    if (row*STRUCT_IST_BANKS+b < STRUCT_INST_STATE_ENTRIES && pending_pick[b][row]) begin
+                        queued_entries_next[row*STRUCT_IST_BANKS+b] = 1'b1;
+                        pending_entries_next[row*STRUCT_IST_BANKS+b] = 1'b0;
+                    end
+                end
+                pending_start_next[b] = (pending_pick_row[b] == BANK_ROWS-1) ? '0 : pending_pick_row[b]+1'b1;
             end
         end
         o_rs_ready_inst_valid = {bypass_valid, issue_valid} & {(STRUCT_DECODE_NEW_INST+STRUCT_IST_ISSUE_WIDTH){reset_n}};
@@ -698,7 +756,7 @@ module instruction_state_table #(
         .clk           (clk),
         .reset_n       (reset_n),
         .i_flush       (1'b0), // 지금은 분기가 없어..
-        .i_read_addr   (prm_update_istnum_all),
+        .i_read_addr   (raw_prm_entry_all),
         .o_read_data   (check_phyreg_all),
         .i_write_addr  (allocate_alloc_num_out),
         .i_write_en    (allocate_is_entries),

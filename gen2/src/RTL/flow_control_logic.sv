@@ -303,7 +303,17 @@ module flow_detect_unit #(
     wire [RETURNS-1:0] fifo_valid;
     wire [RETURNS*PHY_W-1:0] fifo_data;
     logic [PC_W-1:0] delta_pc;
-    integer lane, slot, count_next;
+    integer lane, slot;
+    // Bound intermediate arithmetic, including a signed underflow guard.
+    localparam int COUNT_ARITH_W = $clog2(MAX_INSTRUCTIONS+DECODE+RETURNS+1)+1;
+    logic signed [COUNT_ARITH_W-1:0] count_next;
+    function automatic logic signed [COUNT_ARITH_W-1:0] count_returns(
+        input logic [RETURNS-1:0] valid_bits
+    );
+        count_returns = '0;
+        for (int lane = 0; lane < RETURNS; lane++)
+            count_returns = count_returns + $signed(COUNT_ARITH_W'(valid_bits[lane]));
+    endfunction
     wire completed = active && closed && (admitted == done_bits);
 
     assign o_active = active;
@@ -330,7 +340,7 @@ module flow_detect_unit #(
             admitted <= admitted_next; done_bits <= done_bits_next; retired_count <= retired_count_next;
 `ifndef SYNTHESIS
             if (|(fifo_push & ~fifo_ready)) $error("FDU retirement FIFO overflow");
-            if (count_next > MAX_INSTRUCTIONS) $error("FDU retirement capacity exceeded");
+            if (count_next < 0 || count_next > MAX_INSTRUCTIONS) $error("FDU retirement capacity exceeded");
 `endif
         end
     end
@@ -340,7 +350,7 @@ module flow_detect_unit #(
         admitted_next = admitted; done_bits_next = done_bits;
         fifo_push = '0; fifo_push_data = '0;
         delta_pc = '0; slot = 0;
-        count_next = int'(retired_count)-$countones(o_retired_valid);
+        count_next = $signed({1'b0, retired_count})-count_returns(o_retired_valid);
         if (reset_n && active && !i_open) begin
             for (lane = 0; lane < DECODE; lane = lane+1) begin
                 delta_pc = i_new_pc[lane*TAG_W +: PC_W]-start_pc;
@@ -355,7 +365,7 @@ module flow_detect_unit #(
                     (i_retired_data[lane*RETIRED_W+TAG_W +: PHY_W] != 0)) begin
                     fifo_push[lane] = 1'b1;
                     fifo_push_data[lane*PHY_W +: PHY_W] = i_retired_data[lane*RETIRED_W+TAG_W +: PHY_W];
-                    count_next = count_next+1;
+                    count_next = count_next+$signed(COUNT_ARITH_W'(1));
                 end
             end
             for (lane = 0; lane < DONE_CHANNELS; lane = lane+1) begin

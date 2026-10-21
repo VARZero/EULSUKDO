@@ -27,7 +27,7 @@ module tb_flow_control_logic #(
     logic [RETURNS-1:0] free_valid;
     logic [RETURNS*6-1:0] free_data;
     logic [TAG_W-1:0] fetched[DECODE], history[WINDOWS*RANGE];
-    int bundle_size, next_register, return_count;
+    int bundle_size, next_register, return_count, requested_returns;
     int expected_returns[$];
     int expected_reg;
 
@@ -49,13 +49,15 @@ module tb_flow_control_logic #(
 
     always @(posedge clk) begin
         if (!reset_n) begin
-            expected_returns.delete(); return_count = 0;
+            expected_returns.delete(); return_count = 0; requested_returns = 0;
             if ((|req_valid) || (|free_valid)) $fatal(1, "FCL transfer during reset");
         end
         else begin
             for (int d = 0; d < DECODE; d++) begin
-                if (retired_valid[d] && (retired_data[d*RET_W+TAG_W +: 6] != 0))
+                if (retired_valid[d] && (retired_data[d*RET_W+TAG_W +: 6] != 0)) begin
                     expected_returns.push_back(int'(retired_data[d*RET_W+TAG_W +: 6]));
+                    requested_returns++;
+                end
             end
             for (int r = 0; r < RETURNS; r++) begin
                 if (free_valid[r]) begin
@@ -159,10 +161,12 @@ module tb_flow_control_logic #(
         end
         repeat (8) step();
         if (return_count != 0) $fatal(1, "Retired before the oldest window completed");
-        complete(history[RANGE-1]); await_returns(WINDOWS*RANGE);
+        // Synthetic IDs wrap at six bits in large configurations. Register 0
+        // is deliberately ignored by FCL; count nonzero input requests, not PCs.
+        complete(history[RANGE-1]); await_returns(requested_returns);
         fetch(WINDOWS*RANGE*PC_STEP, 0);
         saved_control = fetched[0]; admit(1, 3'b001, 256);
-        complete(saved_control); await_returns(WINDOWS*RANGE+1);
+        complete(saved_control); await_returns(requested_returns);
         fetch(256, (WINDOWS > 1) ? 1 : 0);
 
         // Conditional branch (not taken) and jump-register resolved by EX.

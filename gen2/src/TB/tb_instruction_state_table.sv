@@ -100,14 +100,22 @@ module tb_instruction_state_table #(
                     end
                 end
             end
-            // Admission depends on registered grants and bypass backpressure,
-            // including partial downstream Get.
-            if (nel_get !== {DECODE{(&dut.allocate_valid) &&
-                !(|(dut.bypass_valid & ~rs_get[ISSUE +: DECODE]))}})
+            // Admission uses registered grants and reserve occupancy only.
+            if (nel_get !== {DECODE{(&dut.allocate_valid) && !(|dut.bypass_reserve_valid)}})
                 $fatal(1, "IST admission changed relative to allocated offers");
             // The RAM port free-runs on its held address when idle. Only
             // qualified reads/responses must be protected from same-row writes.
             for (int b = 0; b < BANKS; b++) begin
+                automatic int expected_row = -1;
+                for (int offset = 0; offset < dut.BANK_ROWS; offset++) begin
+                    automatic int row = (int'(dut.pending_start[b])+offset)%dut.BANK_ROWS;
+                    automatic int entry_id = row*BANKS+b;
+                    if (entry_id < ENTRIES && expected_row < 0 && dut.pending_entries[entry_id] && !dut.queued_entries[entry_id])
+                        expected_row = row;
+                end
+                for (int row = 0; row < dut.BANK_ROWS; row++)
+                    if (dut.pending_pick[b][row] != (row == expected_row))
+                        $fatal(1, "Pending selector differs from sequential round-robin reference");
                 if (dut.request_count[b] > 2) $fatal(1, "Address FIFO overflow bank=%0d", b);
                 if (dut.bank_write[b] && (dut.bank_read[b] || dut.bank_response_valid[b]) &&
                     dut.bank_write_row[b] == dut.bank_read_row[b])
@@ -192,14 +200,16 @@ module tb_instruction_state_table #(
     task automatic check_get_isolation;
         logic [OUTS-1:0] saved_get;
         logic [BANKS-1:0] saved_take, saved_read;
+        logic [DECODE-1:0] saved_admission;
         int saved_row[BANKS];
         saved_get = rs_get;
-        rs_get[ISSUE-1:0] = '0;
+        rs_get = '0;
         #0.1;
-        saved_take = dut.bank_take; saved_read = dut.bank_read;
+        saved_take = dut.bank_take; saved_read = dut.bank_read; saved_admission = nel_get;
         for (int b = 0; b < BANKS; b++) saved_row[b] = int'(dut.bank_read_row[b]);
-        rs_get[ISSUE-1:0] = '1;
+        rs_get = '1;
         #0.1;
+        if (saved_admission !== nel_get) $fatal(1, "RS Get still reaches NEL admission");
         if (saved_take !== dut.bank_take || saved_read !== dut.bank_read)
             $fatal(1, "RS Get still reaches bank arbitration/read control");
         for (int b = 0; b < BANKS; b++)
@@ -295,14 +305,26 @@ module tb_instruction_state_table #(
         notify_slot(0, saved_slot, 9); step(); prm_valid = '0;
         repeat (4) step();
 
-        // PRM pulses continue during backpressure. One already-ready NEL bundle
-        // is buffered, then further NEL admission stops until that bundle drains.
+        // Adjacent notifications must merge with the previous stage-B write,
+        // including the same entry appearing on different lanes in two cycles.
+        send_one(8, mask);
+        notify_slot(0, slot_of[8], 1); step(); prm_valid = '0;
+        notify_slot(UPDATES-1, slot_of[8], OPERANDS); step(); prm_valid = '0;
+        await_issue(8);
+
+        // PRM pulses continue during backpressure. Both bypass slots fill;
+        // further NEL admission then stops regardless of combinational Get.
         send_one(7, '0, 1); saved_requests = request_count;
         await_get(); // A consumed address grant may need preparation before the next bundle.
         rs_get = '0;
         nel_valid = '1;
         for (int d = 0; d < DECODE; d++) nel_data[d*INST_W +: INST_W] = instruction(20+d, '1, 0);
         notify_slot(0, slot_of[7], 9); step(); prm_valid = '0; nel_valid = '0;
+        await_get();
+        nel_valid = '1;
+        for (int d = 0; d < DECODE; d++) nel_data[d*INST_W +: INST_W] = instruction(30+d, '1, 0);
+        step(); nel_valid = '0;
+        check_get_isolation();
         repeat (8) step();
         // A repeated wakeup after queueing/reading must not enqueue it again.
         notify_slot(UPDATES-1, slot_of[7], 9); step(); prm_valid = '0;
@@ -320,7 +342,7 @@ module tb_instruction_state_table #(
             rs_get[ISSUE+d] = 1'b0;
         end
         rs_get = '1;
-        for (int d = 0; d < DECODE; d++) await_issue(20+d);
+        for (int d = 0; d < DECODE; d++) begin await_issue(20+d); await_issue(30+d); end
 
         // Fill until fewer than DECODE offers remain. No ready notifications
         // are sent, so no entry can legitimately be reused during this phase.

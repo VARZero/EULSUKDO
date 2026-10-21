@@ -149,7 +149,14 @@ module physical_register_mapper #(
 
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0]            drain_start, drain_start_next;
     logic [_BITWIDTH_STRUCT_PHYREGS-1:0]            drain_phyreg;
-    logic                                           drain_valid, drain_fire;
+    logic                                         drain_valid, drain_fire;
+    // One reserved completed row. Selection never depends on counter reads or
+    // FIFO readiness; the registered identity is retained through backpressure.
+    localparam int DRAIN_LEAVES = 1 << $clog2(STRUCT_PHYREGS);
+    logic [STRUCT_PHYREGS-1:0]                      drain_candidates, drain_masked;
+    logic [_BITWIDTH_STRUCT_PHYREGS:0]             drain_first, drain_after_start;
+    logic [_BITWIDTH_STRUCT_PHYREGS-1:0]           drain_select_phyreg;
+    logic                                         drain_select_valid;
 
     // Counter port 0 drains a completed row; ports 1..WAIT_INPUTS append requests.
     logic [(COUNTER_CHANNELS*_BITWIDTH_STRUCT_PHYREGS)-1:0] counter_addr;
@@ -165,6 +172,11 @@ module physical_register_mapper #(
     // The common FIFO owns compaction, storage, occupancy and output delivery.
     logic [OUTPUT_PUSH_CHANNELS-1:0]                output_push_valid;
     wire  [OUTPUT_PUSH_CHANNELS-1:0]                output_push_ready;
+    // Elastic notification bundle: ownership moves here when map counters are
+    // cleared. FIFO stalls cannot lose the list or repeat the map commit.
+    logic [OUTPUT_PUSH_CHANNELS-1:0]                notify_valid;
+    logic [(OUTPUT_PUSH_CHANNELS*_BITWIDTH_READY_PRM)-1:0] notify_data;
+    wire                                          notify_accept = !(|notify_valid) || (&output_push_ready);
     logic [(OUTPUT_PUSH_CHANNELS*_BITWIDTH_READY_PRM)-1:0] output_push_data;
     wire  [STRUCT_PRM_ENTRY_UPDATE-1:0]             output_valid;
     wire  [(STRUCT_PRM_ENTRY_UPDATE*_BITWIDTH_READY_PRM)-1:0] output_data;
@@ -186,7 +198,6 @@ module physical_register_mapper #(
     assign o_ist_ready_phyreg_data    = output_data;
     assign input_buffer_write_data   = {i_ist_wait_phyreg_valid, i_ist_wait_phyreg_data};
 
-    integer idx_drain, drain_scan;
     integer idx_address;
     integer idx_push;
     integer idx_wait, idx_slot, idx_done, idx_allocate, idx_retire;
@@ -222,6 +233,38 @@ module physical_register_mapper #(
         end
     end
 
+    // Balanced fixed-index priority encoders avoid a variable-index circular
+    // scan. Prefer candidates >= the cursor, otherwise wrap to the first row.
+    function automatic [_BITWIDTH_STRUCT_PHYREGS:0] first_drain(
+        input logic [STRUCT_PHYREGS-1:0] candidates
+    );
+        logic [_BITWIDTH_STRUCT_PHYREGS:0] tree [0:2*DRAIN_LEAVES-1];
+        for (int leaf = 0; leaf < DRAIN_LEAVES; leaf++) begin
+            tree[DRAIN_LEAVES+leaf] = '0;
+            if (leaf < STRUCT_PHYREGS)
+                tree[DRAIN_LEAVES+leaf] = {candidates[leaf], _BITWIDTH_STRUCT_PHYREGS'(leaf)};
+        end
+        for (int node = DRAIN_LEAVES-1; node > 0; node--)
+            tree[node] = tree[2*node][_BITWIDTH_STRUCT_PHYREGS] ? tree[2*node] : tree[2*node+1];
+        first_drain = tree[1];
+    endfunction
+
+    always_comb begin
+        for (int row = 0; row < STRUCT_PHYREGS; row++) begin
+            // Exclude the reserved row even on its commit cycle. Its active bit
+            // is cleared on that edge; a replacement must be a different row.
+            drain_candidates[row] = phyreg_ready[row] && mapping_active[row] &&
+                                    !(drain_valid && drain_phyreg == _BITWIDTH_STRUCT_PHYREGS'(row));
+            drain_masked[row] = drain_candidates[row] && (_BITWIDTH_STRUCT_PHYREGS'(row) >= drain_start);
+        end
+        drain_first = first_drain(drain_candidates);
+        drain_after_start = first_drain(drain_masked);
+        drain_select_valid = drain_first[_BITWIDTH_STRUCT_PHYREGS];
+        drain_select_phyreg = drain_after_start[_BITWIDTH_STRUCT_PHYREGS] ?
+                              drain_after_start[0 +: _BITWIDTH_STRUCT_PHYREGS] :
+                              drain_first[0 +: _BITWIDTH_STRUCT_PHYREGS];
+    end
+
     always_comb begin
         // Stage 2: recheck current Ready / occupancy and commit atomically.
         wait_input_valid = map_valid & {WAIT_INPUTS{reset_n && map_stage_valid}};
@@ -231,20 +274,6 @@ module physical_register_mapper #(
             wait_input_phyreg[idx_input] = wait_input_list[idx_input][0 +: _BITWIDTH_STRUCT_PHYREGS];
             wait_input_istentry[idx_input] = wait_input_list[idx_input][_BITWIDTH_STRUCT_PHYREGS +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
             wait_ready_valid[idx_input] = wait_input_valid[idx_input] && phyreg_ready[wait_input_phyreg[idx_input]];
-        end
-
-        // Select Completed Physical Register
-        drain_valid = 1'b0;
-        drain_phyreg = 0;
-        drain_scan = 0;
-        // One completed physical register per cycle, with round-robin arbitration.
-        for (idx_drain = 0; idx_drain < STRUCT_PHYREGS; idx_drain = idx_drain+1) begin
-            drain_scan = int'(drain_start)+idx_drain;
-            if (drain_scan >= STRUCT_PHYREGS) drain_scan = drain_scan-STRUCT_PHYREGS;
-            if (!drain_valid && phyreg_ready[drain_scan] && mapping_active[drain_scan]) begin
-                drain_valid = reset_n;
-                drain_phyreg = _BITWIDTH_STRUCT_PHYREGS'(drain_scan);
-            end
         end
 
         // Mapping Counter / Map Addresses
@@ -279,9 +308,9 @@ module physical_register_mapper #(
         output_push_data = 0;
         drain_count = 0;
         if (drain_valid) drain_count = int'(counter_read_data[0 +: _BITWIDTH_STRUCT_PRM_ENTRY_BUFFER]);
-        drain_fire = drain_valid && (drain_count != 0) && (&output_push_ready);
+        drain_fire = reset_n && drain_valid && (drain_count != 0) && notify_accept;
         input_fire = reset_n && map_stage_valid && input_map_fit &&
-                     (!(|wait_ready_valid) || (&output_push_ready));
+                     (!(|wait_ready_valid) || notify_accept);
 
         if (drain_fire) begin
             for (idx_push = 0; idx_push < STRUCT_PRM_ENTRY_BUFFER; idx_push = idx_push+1) begin
@@ -332,12 +361,17 @@ module physical_register_mapper #(
         for (idx_slot = 0; idx_slot < STRUCT_PRM_ENTRY_BUFFER; idx_slot = idx_slot+1)
             mapping_write_valid[idx_slot] = 0;
 
-        // Release a map only after its entire batch has secured output FIFO space.
+        // Release a map only after its entire batch has secured notification buffer space.
         if (drain_fire) begin
             counter_write_valid[0] = 1'b1;
             mapping_active_next[drain_phyreg] = 1'b0;
-            if (drain_phyreg == STRUCT_PHYREGS-1) drain_start_next = 0;
-            else drain_start_next = drain_phyreg+1'b1;
+        end
+
+        // Advance fairness on reservation, not downstream acceptance. Holding
+        // the current row excludes it from subsequent selections until commit.
+        if ((!drain_valid || drain_fire) && drain_select_valid) begin
+            if (drain_select_phyreg == STRUCT_PHYREGS-1) drain_start_next = 0;
+            else drain_start_next = drain_select_phyreg+1'b1;
         end
 
         // Commit all unfinished requests in the pipeline stage together.
@@ -446,6 +480,10 @@ module physical_register_mapper #(
             mapping_active <= 0;
             retired_pending <= 0;
             drain_start <= 0;
+            drain_valid <= 0;
+            drain_phyreg <= 0;
+            notify_valid <= 0;
+            notify_data <= 0;
         end
         else begin
 `ifndef SYNTHESIS
@@ -469,6 +507,14 @@ module physical_register_mapper #(
             mapping_active <= mapping_active_next;
             retired_pending <= retired_pending_next;
             drain_start <= drain_start_next;
+            if (!drain_valid || drain_fire) begin
+                drain_valid <= drain_select_valid;
+                if (drain_select_valid) drain_phyreg <= drain_select_phyreg;
+            end
+            if (notify_accept) begin
+                notify_valid <= output_push_valid;
+                if (|output_push_valid) notify_data <= output_push_data;
+            end
         end
     end
 
@@ -558,9 +604,9 @@ module physical_register_mapper #(
         .clk           (clk),
         .reset_n       (reset_n),
         .i_flush       (1'b0),
-        .i_push        (output_push_valid),
+        .i_push        (notify_valid & {OUTPUT_PUSH_CHANNELS{reset_n && (&output_push_ready)}}),
         .o_push_ready  (output_push_ready),
-        .i_push_data   (output_push_data),
+        .i_push_data   (notify_data),
         // IST merges same-entry notifications; every valid lane is consumed.
         .i_pop         (output_valid),
         .o_pop_valid   (output_valid),

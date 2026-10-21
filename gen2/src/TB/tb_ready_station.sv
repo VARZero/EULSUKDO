@@ -19,9 +19,11 @@ module tb_ready_station #(
     logic [4:0] out_valid, out_get;
     logic [5*WIDTH-1:0] out_data;
     typedef logic [WIDTH-1:0] instruction_t;
-    localparam int MODEL_DEPTH = RS_FIFO+INPUTS*8+32;
-    instruction_t expected[3][MODEL_DEPTH];
-    int pending[3];
+    localparam int MODEL_DEPTH = 100000;
+    instruction_t expected[MODEL_DEPTH];
+    bit live[MODEL_DEPTH];
+    logic [4:0] held;
+    instruction_t held_data[5];
     int serial = 1, accepted = 0, removed = 0, stalled = 0;
     logic [31:0] rng = 32'h42cafe13;
 
@@ -37,44 +39,44 @@ module tb_ready_station #(
         .i_ex_wait_inst_get(out_get), .o_ex_wait_inst_data(out_data)
     );
 
-    // Only public handshakes enter the model; compare every offered output,
-    // including lanes held by EX and arbitrary holes in the three-lane pop.
+    // Independent identity/data scoreboard: cross-input issue order is free.
+    // Every held output must remain on the same lane until accepted.
     always @(posedge clk) begin
         if (!reset_n) begin
-            for (int p = 0; p < 3; p++) pending[p] = 0;
+            for (int n = 0; n < MODEL_DEPTH; n++) live[n] = 0;
+            held = '0;
+            accepted = 0; removed = 0;
             if ((|in_get) || (|out_valid)) $fatal(1, "RS offers during reset");
-        end
-        else begin
+        end else begin
             if (in_get != {INPUTS{in_get[0]}}) $fatal(1, "Partial bundle acknowledgement");
             if ((|in_valid) && !(|in_get)) stalled++;
             for (int p = 0; p < 3; p++) begin
                 for (int r = 0; r < READS[p]; r++) begin
-                    if (out_valid[OFFSETS[p]+r]) begin
-                        if (r >= pending[p])
-                            $fatal(1, "Unexpected/duplicate output path=%0d lane=%0d accepted=%0d removed=%0d", p, r, accepted, removed);
-                        if (out_data[(OFFSETS[p]+r)*WIDTH +: WIDTH] !== expected[p][r])
-                            $fatal(1, "RS order/data mismatch path=%0d lane=%0d", p, r);
-                        if (r > 0 && !out_valid[OFFSETS[p]+r-1])
-                            $fatal(1, "Non-prefix RS output");
+                    automatic int lane = OFFSETS[p]+r;
+                    automatic int id = int'(out_data[lane*WIDTH +: 32]);
+                    if (held[lane] && (!out_valid[lane] ||
+                        out_data[lane*WIDTH +: WIDTH] !== held_data[lane]))
+                        $fatal(1, "Stalled output changed lane=%0d", lane);
+                    if (out_valid[lane]) begin
+                        if (id <= 0 || id >= MODEL_DEPTH || !live[id])
+                            $fatal(1, "Unexpected/duplicate output id=%0d", id);
+                        if (out_data[lane*WIDTH +: WIDTH] !== expected[id] ||
+                            out_data[lane*WIDTH+PATH_OFFSET +: 2] != 2'(p))
+                            $fatal(1, "RS data/path mismatch id=%0d", id);
+                        for (int other = 0; other < lane; other++)
+                            if (out_valid[other] && out_data[other*WIDTH +: 32] == 32'(id))
+                                $fatal(1, "Duplicate simultaneous offer");
+                        if (out_get[lane]) begin live[id] = 0; removed++; end
                     end
-                end
-                for (int r = READS[p]-1; r >= 0; r--) begin
-                    if (out_valid[OFFSETS[p]+r] && out_get[OFFSETS[p]+r]) begin
-                        for (int entry_idx = r; entry_idx < pending[p]-1; entry_idx++)
-                            expected[p][entry_idx] = expected[p][entry_idx+1];
-                        pending[p]--;
-                        removed++;
-                    end
+                    held[lane] = out_valid[lane] && !out_get[lane];
+                    held_data[lane] = out_data[lane*WIDTH +: WIDTH];
                 end
             end
             for (int w = 0; w < INPUTS; w++) begin
                 if (in_valid[w] && in_get[w]) begin
-                    int path_idx;
-                    path_idx = int'(in_data[w*WIDTH+PATH_OFFSET +: 2]);
-                    if (pending[path_idx] >= MODEL_DEPTH) $fatal(1, "RS model capacity exceeded");
-                    expected[path_idx][pending[path_idx]] = in_data[w*WIDTH +: WIDTH];
-                    pending[path_idx]++;
-                    accepted++;
+                    automatic int id = int'(in_data[w*WIDTH +: 32]);
+                    if (id <= 0 || id >= MODEL_DEPTH || live[id]) $fatal(1, "Bad input identity");
+                    expected[id] = in_data[w*WIDTH +: WIDTH]; live[id] = 1; accepted++;
                 end
             end
         end
@@ -91,7 +93,8 @@ module tb_ready_station #(
         for (int w = 0; w < INPUTS; w++) begin
             for (int b = 0; b < WIDTH; b++)
                 in_data[w*WIDTH+b] = 1'((serial >> (b%31)) ^ (b/31));
-            in_data[w*WIDTH+PATH_OFFSET +: 2] = 2'(only_path < 0 ? w%3 : only_path);
+            in_data[w*WIDTH +: 32] = 32'(serial);
+            in_data[w*WIDTH+PATH_OFFSET +: 2] = 2'(only_path < 0 ? random_word()%3 : only_path);
             in_valid[w] = !sparse || ((random_word()%3) != 0);
             serial++;
         end
@@ -147,6 +150,14 @@ module tb_ready_station #(
             if (transferred) in_valid = '0;
         end
         drain();
+        // Reset with queued and held instructions; stale BRAM contents must
+        // never become visible after valid/pointers have been reset.
+        out_get = '0;
+        repeat (5) begin new_bundle(1, 0); step(); end
+        in_valid = '0; reset_n = 0; repeat (3) step(); reset_n = 1;
+        out_get = '1; repeat (12) step();
+        if (|out_valid) $fatal(1, "Stale output after reset");
+        new_bundle(-1, 0); step(); drain();
         if (stalled < 40) $fatal(1, "Missing backpressure coverage");
         $display("PASS RS D=%0d U=%0d N=%0d accepted=%0d removed=%0d stalled=%0d",
                  DECODE, UPDATES, ENTRIES, accepted, removed, stalled);

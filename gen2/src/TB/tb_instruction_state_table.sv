@@ -80,8 +80,28 @@ module tb_instruction_state_table #(
                         $fatal(1, "Same instruction in head and reserve");
                 end
             end
-            // Fast admission must match the original sorted-offer condition,
-            // including bypass backpressure and partial downstream Get.
+            // Every prepared/reserved row has exactly one owner, and cannot
+            // overlap an instruction already committed to the table.
+            if (|(dut.active_entries & dut.allocation_reserved))
+                $fatal(1, "Reserved IST address overlaps an active instruction");
+            if ($countones(dut.allocation_reserved) !=
+                $countones(dut.candidate_valid)+DECODE*int'(dut.grant_count))
+                $fatal(1, "Duplicate candidate/grant reservation");
+            if ($countones(dut.grant_valid) != int'(dut.grant_count))
+                $fatal(1, "Grant FIFO occupancy mismatch");
+            for (int q = 0; q < 2; q++) begin
+                if (dut.grant_valid[q]) begin
+                    for (int lane = 0; lane < DECODE; lane++) begin
+                        automatic int id = int'(dut.grant_data[q][lane*IDX_W +: IDX_W]);
+                        if (id >= ENTRIES) $fatal(1, "Reserved padded IST address");
+                        for (int prev = 0; prev < lane; prev++)
+                            if (id % BANKS == int'(dut.grant_data[q][prev*IDX_W +: IDX_W]) % BANKS)
+                                $fatal(1, "Two writes reserved in the same bank");
+                    end
+                end
+            end
+            // Admission depends on registered grants and bypass backpressure,
+            // including partial downstream Get.
             if (nel_get !== {DECODE{(&dut.allocate_valid) &&
                 !(|(dut.bypass_valid & ~rs_get[ISSUE +: DECODE]))}})
                 $fatal(1, "IST admission changed relative to allocated offers");
@@ -278,6 +298,7 @@ module tb_instruction_state_table #(
         // PRM pulses continue during backpressure. One already-ready NEL bundle
         // is buffered, then further NEL admission stops until that bundle drains.
         send_one(7, '0, 1); saved_requests = request_count;
+        await_get(); // A consumed address grant may need preparation before the next bundle.
         rs_get = '0;
         nel_valid = '1;
         for (int d = 0; d < DECODE; d++) nel_data[d*INST_W +: INST_W] = instruction(20+d, '1, 0);

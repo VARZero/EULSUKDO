@@ -7,6 +7,8 @@ import json
 from run_prm_pipeline import ROOT, run, CASES as PRM_CASES
 
 CASES = [(top, params) for top, params in PRM_CASES if top.startswith('tb_scheduler_')]
+for d in (1, 3, 7):
+    CASES.append(('tb_ist_grant_throughput', dict(DECODE=d)))
 for d, o, u, n, issue, banks in [
     (2, 2, 5, 16, 5, 8), (1, 3, 3, 17, 5, 8), (3, 3, 5, 17, 5, 8),
     (4, 2, 2, 128, 7, 8), (4, 2, 7, 33, 7, 8), (2, 2, 3, 17, 5, 2),

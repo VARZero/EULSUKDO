@@ -129,21 +129,18 @@ module ready_station #(
     endfunction
 
     generate
-        // Common FIFO compacts sparse inputs and uses the optimized output gather.
+        // Each input owns a simple FIFO; only the output heads are gathered.
         for (ex_split_gen = 0; ex_split_gen < STRUCT_EX_PATH; ex_split_gen = ex_split_gen+1) begin
             assign ex_fifo_ready[ex_split_gen] = &ex_fifos_ready[ex_split_gen];
 
-            fifo_multichan #(
+            rs_banked_queue #(
                 .DATA_WIDTH    (_BITWIDTH_EX_INST_WIDTH),
                 .READ_CHANNEL  (STRUCT_RS_OUT_ENTRY[ex_split_gen]),
                 .WRITE_CHANNEL (INPUT_CHANNEL),
-                .MIN_FIFO_ENTRY(STRUCT_RS_FIFO_WIDTH),
-                .USE_BRAM      (1'b1),
-                .OPTIMIZED_INPUT_GATHER (1'b1)
+                .MIN_FIFO_ENTRY(STRUCT_RS_FIFO_WIDTH)
             ) U_RS_FIFO (
                 .clk           (clk),
                 .reset_n       (reset_n),
-                .i_flush       (1'b0),
                 .i_push        (ex_valid[ex_split_gen]),
                 .o_push_ready  (ex_fifos_ready[ex_split_gen]),
                 .i_push_data   (i_ist_ready_inst_data),
@@ -156,4 +153,142 @@ module ready_station #(
 
     endgenerate
 
+endmodule
+
+// Fixed input-to-bank wiring removes the wide input compaction/append network.
+// Across input banks, ready instructions may issue out of arrival order.
+// Each output is independently held until its execution unit accepts it.
+module rs_banked_queue #(
+    parameter int DATA_WIDTH = 92,
+    parameter int READ_CHANNEL = 3,
+    parameter int WRITE_CHANNEL = 8,
+    parameter int MIN_FIFO_ENTRY = 128,
+    localparam int DEPTH = (MIN_FIFO_ENTRY+WRITE_CHANNEL-1)/WRITE_CHANNEL,
+    localparam int BANK_W = WRITE_CHANNEL > 1 ? $clog2(WRITE_CHANNEL) : 1
+) (
+    input logic clk, reset_n,
+    input logic [WRITE_CHANNEL-1:0] i_push,
+    output wire [WRITE_CHANNEL-1:0] o_push_ready,
+    input logic [WRITE_CHANNEL*DATA_WIDTH-1:0] i_push_data,
+    input logic [READ_CHANNEL-1:0] i_pop,
+    output wire [READ_CHANNEL-1:0] o_pop_valid,
+    output wire [READ_CHANNEL*DATA_WIDTH-1:0] o_pop_data
+);
+    wire [WRITE_CHANNEL-1:0] empty, full;
+    wire [DATA_WIDTH-1:0] head [WRITE_CHANNEL];
+    logic [WRITE_CHANNEL-1:0] take, selected [READ_CHANNEL];
+    logic [BANK_W-1:0] first_bank, next_bank;
+    logic [READ_CHANNEL-1:0] output_valid;
+    logic [DATA_WIDTH-1:0] output_data [READ_CHANNEL], gathered [READ_CHANNEL];
+    assign o_push_ready = {WRITE_CHANNEL{reset_n}} & ~full;
+    assign o_pop_valid = {READ_CHANNEL{reset_n}} & output_valid;
+    for (genvar b = 0; b < WRITE_CHANNEL; b++) begin : G_INPUT
+        rs_input_fifo #(.DATA_WIDTH(DATA_WIDTH), .DEPTH(DEPTH)) U_FIFO (
+            .clk(clk), .reset_n(reset_n), .push(i_push[b] && o_push_ready[b]),
+            .data(i_push_data[b*DATA_WIDTH +: DATA_WIDTH]), .pop(take[b]),
+            .head(head[b]), .empty(empty[b]), .full(full[b])
+        );
+    end
+    // Rank eligible bank heads in parallel; match them to available output
+    // slots. This avoids READ_CHANNEL cascaded priority scans.
+    localparam int COUNT_W = $clog2((WRITE_CHANNEL > READ_CHANNEL ? WRITE_CHANNEL : READ_CHANNEL)+1);
+    localparam int TREE_LEAVES = 1 << $clog2(WRITE_CHANNEL);
+    logic [COUNT_W-1:0] bank_rank [WRITE_CHANNEL], slot_rank [READ_CHANNEL];
+    logic [COUNT_W-1:0] taken_count;
+    function automatic logic [COUNT_W-1:0] count_banks(input logic [WRITE_CHANNEL-1:0] bits_in);
+        logic [COUNT_W-1:0] tree [2*TREE_LEAVES];
+        tree[0] = '0;
+        for (int k=0; k<TREE_LEAVES; k++) begin
+            tree[TREE_LEAVES+k] = '0;
+            if (k<WRITE_CHANNEL) tree[TREE_LEAVES+k] = COUNT_W'(bits_in[k]);
+        end
+        for (int k=TREE_LEAVES-1; k>0; k--) tree[k] = tree[2*k]+tree[2*k+1];
+        return tree[1];
+    endfunction
+    for (genvar b=0; b<WRITE_CHANNEL; b++) begin : G_RANK
+        logic [WRITE_CHANNEL-1:0] ahead;
+        for (genvar other=0; other<WRITE_CHANNEL; other++) begin : G_AHEAD
+            if (other<b)
+                assign ahead[other] = !empty[other] && (int'(first_bank)<=other || int'(first_bank)>b);
+            else if (other>b)
+                assign ahead[other] = !empty[other] && (int'(first_bank)<=other && int'(first_bank)>b);
+            else assign ahead[other] = 1'b0;
+        end
+        assign bank_rank[b] = count_banks(ahead);
+    end
+    always_comb begin
+        take = '0;
+        for (int r=0; r<READ_CHANNEL; r++) begin
+            slot_rank[r] = '0;
+            for (int prev=0; prev<r; prev++)
+                slot_rank[r] += COUNT_W'(!output_valid[prev] || i_pop[prev]);
+            selected[r] = '0;
+            for (int b=0; b<WRITE_CHANNEL; b++) begin
+                selected[r][b] = reset_n && (!output_valid[r] || i_pop[r]) &&
+                    !empty[b] && bank_rank[b] == slot_rank[r];
+                take[b] |= selected[r][b];
+            end
+        end
+        taken_count = count_banks(take);
+        next_bank = first_bank;
+        for (int b=0; b<WRITE_CHANNEL; b++)
+            if (take[b] && bank_rank[b] == taken_count-1'b1)
+                next_bank = BANK_W'(b == WRITE_CHANNEL-1 ? 0 : b+1);
+    end
+    for (genvar r = 0; r < READ_CHANNEL; r++) begin : G_OUTPUT
+        always_comb begin
+            gathered[r] = '0;
+            for (int b = 0; b < WRITE_CHANNEL; b++)
+                gathered[r] |= head[b] & {DATA_WIDTH{selected[r][b]}};
+        end
+        assign o_pop_data[r*DATA_WIDTH +: DATA_WIDTH] = output_data[r];
+        always_ff @(posedge clk or negedge reset_n) begin
+            if (!reset_n) begin
+                output_valid[r] <= 0; output_data[r] <= '0;
+            end else if (!output_valid[r] || i_pop[r]) begin
+                output_valid[r] <= |selected[r];
+                if (|selected[r]) output_data[r] <= gathered[r];
+            end
+        end
+    end
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) first_bank <= '0;
+        else first_bank <= next_bank;
+    end
+endmodule
+
+// Synchronous look-ahead read with write forwarding when an empty FIFO is
+// filled. Only control/head forwarding registers reset; RAM can infer BRAM.
+module rs_input_fifo #(
+    parameter int DATA_WIDTH = 92, DEPTH = 16,
+    localparam int ADDR_W = DEPTH > 1 ? $clog2(DEPTH) : 1
+) (
+    input logic clk, reset_n, push, pop,
+    input logic [DATA_WIDTH-1:0] data,
+    output wire [DATA_WIDTH-1:0] head,
+    output wire empty, full
+);
+    wire [ADDR_W-1:0] write_addr, read_addr;
+    // Writes are accepted using registered Full only, independently of Pop.
+    wire write_enable = reset_n && push && !full;
+    logic [DATA_WIDTH-1:0] read_data, forward_data;
+    logic forward_valid;
+    fifo_control #(.FIFO_DEPTH(DEPTH), .READ_DELAY(1)) U_CONTROL (
+        .clk(clk), .reset_n(reset_n), .i_flush(1'b0), .i_push(push), .i_pop(pop),
+        .o_empty(empty), .o_full(full), .o_push_addr(write_addr),
+        .o_pop_addr(read_addr), .o_we()
+    );
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] memory [DEPTH];
+    always_ff @(posedge clk) begin
+        if (write_enable) memory[write_addr] <= data;
+        read_data <= memory[read_addr];
+    end
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin forward_valid <= 0; forward_data <= '0; end
+        else begin
+            forward_valid <= write_enable && write_addr == read_addr;
+            if (write_enable && write_addr == read_addr) forward_data <= data;
+        end
+    end
+    assign head = forward_valid ? forward_data : read_data;
 endmodule

@@ -147,7 +147,6 @@ module instruction_state_table #(
     localparam int ALLOC_WIDTH = STRUCT_DECODE_NEW_INST*(_BITWIDTH_STRUCT_INST_STATE_ENTRIES+1);
     localparam int FREE_COUNT_WIDTH = $clog2(BANK_ROWS+1);
     localparam int FREE_ROW_LEAVES = 1 << $clog2(BANK_ROWS);
-    localparam int ALLOC_SORT_STAGES = BANK_BITS*(BANK_BITS+1)/2;
     localparam int ALLOC_CAND_WIDTH = FREE_COUNT_WIDTH+BANK_WIDTH+_BITWIDTH_STRUCT_INST_STATE_ENTRIES;
     localparam int FREE_BANK_COUNT_WIDTH = $clog2(STRUCT_IST_BANKS+1);
 
@@ -186,7 +185,51 @@ module instruction_state_table #(
             $fatal(1, "IST requires positive issue width, power-of-two banks >= decode, entries >= decode");
     end
 
-    // Offers depend only on registered occupancy, not on NEL Valid/data/Get.
+    // Compare priority keys in parallel, then count higher-priority banks
+    // with a balanced tree. Rotation makes every key unique, including ties
+    // in free capacity. Addresses never traverse cascaded compare/swap muxes.
+    function automatic logic [FREE_BANK_COUNT_WIDTH-1:0] prepared_rank(
+        input logic [STRUCT_IST_BANKS*ALLOC_CAND_WIDTH-1:0] packed_candidates,
+        input int bank
+    );
+        logic [FREE_BANK_COUNT_WIDTH-1:0] count_tree [2*STRUCT_IST_BANKS];
+        logic [FREE_COUNT_WIDTH+BANK_WIDTH-1:0] key;
+        key = packed_candidates[bank*ALLOC_CAND_WIDTH+_BITWIDTH_STRUCT_INST_STATE_ENTRIES
+                                +: FREE_COUNT_WIDTH+BANK_WIDTH];
+        count_tree[0] = '0;
+        for (int b=0; b<STRUCT_IST_BANKS; b++)
+            count_tree[STRUCT_IST_BANKS+b] = FREE_BANK_COUNT_WIDTH'(
+                packed_candidates[b*ALLOC_CAND_WIDTH+_BITWIDTH_STRUCT_INST_STATE_ENTRIES
+                                  +: FREE_COUNT_WIDTH+BANK_WIDTH] > key);
+        for (int node=STRUCT_IST_BANKS-1; node>0; node--)
+            count_tree[node] = count_tree[2*node]+count_tree[2*node+1];
+        return count_tree[1];
+    endfunction
+
+    function automatic logic [ALLOC_WIDTH-1:0] rank_prepared(
+        input logic [STRUCT_IST_BANKS*ALLOC_CAND_WIDTH-1:0] packed_candidates
+    );
+        logic [FREE_BANK_COUNT_WIDTH-1:0] rank [STRUCT_IST_BANKS];
+        logic [ALLOC_WIDTH-1:0] result;
+        logic chosen;
+        result = '0; chosen = 0;
+        for (int b=0; b<STRUCT_IST_BANKS; b++) rank[b] = prepared_rank(packed_candidates,b);
+        for (int lane=0; lane<STRUCT_DECODE_NEW_INST; lane++) begin
+            for (int b=0; b<STRUCT_IST_BANKS; b++) begin
+                chosen = rank[b] == FREE_BANK_COUNT_WIDTH'(lane) &&
+                    packed_candidates[b*ALLOC_CAND_WIDTH+_BITWIDTH_STRUCT_INST_STATE_ENTRIES+BANK_WIDTH
+                                      +: FREE_COUNT_WIDTH] != 0;
+                result[_BITWIDTH_ALLOC_IST_NUM+lane] |= chosen;
+                result[lane*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] |=
+                    packed_candidates[b*ALLOC_CAND_WIDTH +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] &
+                    {_BITWIDTH_STRUCT_INST_STATE_ENTRIES{chosen}};
+            end
+        end
+        return result;
+    endfunction
+
+    // Combinational reference helper for allocation-policy equivalence tests.
+    // Production allocation registers the preparation and ranking separately.
     // Prefer banks with more free rows; rotate equal-capacity choices. This
     // balances partial/sparse allocations and masks padding in the final row.
     function automatic logic [ALLOC_WIDTH-1:0] allocation_offers(
@@ -195,13 +238,9 @@ module instruction_state_table #(
     );
         logic [FREE_COUNT_WIDTH-1:0] count_tree [2*FREE_ROW_LEAVES];
         logic [ROW_WIDTH-1:0] row_tree [2*FREE_ROW_LEAVES];
-        logic [ALLOC_CAND_WIDTH-1:0] candidates [ALLOC_SORT_STAGES+1][STRUCT_IST_BANKS];
+        logic [STRUCT_IST_BANKS*ALLOC_CAND_WIDTH-1:0] candidates;
         logic [BANK_WIDTH-1:0] bank_distance;
-        int stage_num, partner;
-        logic [ALLOC_WIDTH-1:0] result;
-        result = '0;
         bank_distance = '0;
-        stage_num = 0; partner = 0;
         // Each bank reduces its free-row bitmap independently. Count addition
         // and first-free selection have logarithmic depth, not a row scan.
         for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
@@ -221,47 +260,109 @@ module instruction_state_table #(
             // Descending key: more space first, then nearest bank in the
             // start_bank rotation. Distances are unique, so ties are stable.
             bank_distance = BANK_WIDTH'(b)-start_bank;
-            candidates[0][b] = {count_tree[1], ~bank_distance,
+            candidates[b*ALLOC_CAND_WIDTH +: ALLOC_CAND_WIDTH] = {count_tree[1], ~bank_distance,
                 _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(int'(row_tree[1])*STRUCT_IST_BANKS+b)};
         end
-        // Fixed bitonic compare/merge network. All pairs in a stage run in
-        // parallel, and all decode lanes come from the same sorted result.
-        // Eight banks use six comparison stages, independent of decode width.
-        for (int span = 2; span <= STRUCT_IST_BANKS; span = span*2) begin
-            for (int distance = span/2; distance > 0; distance = distance/2) begin
-                for (int b = 0; b < STRUCT_IST_BANKS; b++)
-                    candidates[stage_num+1][b] = candidates[stage_num][b];
-                for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
-                    partner = b ^ distance;
-                    if (partner > b) begin
-                        if (((b & span) == 0 &&
-                             candidates[stage_num][b][ALLOC_CAND_WIDTH-1:_BITWIDTH_STRUCT_INST_STATE_ENTRIES] <
-                             candidates[stage_num][partner][ALLOC_CAND_WIDTH-1:_BITWIDTH_STRUCT_INST_STATE_ENTRIES]) ||
-                            ((b & span) != 0 &&
-                             candidates[stage_num][b][ALLOC_CAND_WIDTH-1:_BITWIDTH_STRUCT_INST_STATE_ENTRIES] >
-                             candidates[stage_num][partner][ALLOC_CAND_WIDTH-1:_BITWIDTH_STRUCT_INST_STATE_ENTRIES])) begin
-                            candidates[stage_num+1][b] = candidates[stage_num][partner];
-                            candidates[stage_num+1][partner] = candidates[stage_num][b];
-                        end
-                    end
-                end
-                stage_num++;
-            end
-        end
-        for (int lane = 0; lane < STRUCT_DECODE_NEW_INST; lane++) begin
-            if (candidates[ALLOC_SORT_STAGES][lane][ALLOC_CAND_WIDTH-1 -: FREE_COUNT_WIDTH] != 0) begin
-                result[_BITWIDTH_ALLOC_IST_NUM+lane] = 1;
-                result[lane*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES] =
-                    candidates[ALLOC_SORT_STAGES][lane][0 +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES];
-            end
-        end
-        return result;
+        return rank_prepared(candidates);
     endfunction
-    assign {allocate_valid, allocate_alloc_num_out} = allocation_offers(active_entries, alloc_start);
+    // Allocation pipeline: bank-local free-row preparation -> ranked grants
+    // -> NEL write. Candidate and grant tokens own their rows until consumed.
+    // Only registered ownership feeds preparation; same-cycle release/accept
+    // cannot propagate back through the count/sort network into SRAM writes.
+    logic [STRUCT_IST_BANKS-1:0] candidate_valid, candidate_take;
+    logic [ROW_WIDTH-1:0] candidate_row_reg [STRUCT_IST_BANKS];
+    logic [FREE_COUNT_WIDTH-1:0] candidate_count [STRUCT_IST_BANKS];
+    logic [FREE_COUNT_WIDTH-1:0] prepare_count [STRUCT_IST_BANKS];
+    logic [ROW_WIDTH-1:0] prepare_row [STRUCT_IST_BANKS];
+    logic [STRUCT_INST_STATE_ENTRIES-1:0] allocation_reserved, allocation_unavailable;
+    logic [1:0] grant_valid, grant_count;
+    logic grant_read_ptr, grant_write_ptr, grant_push, grant_pop;
+    logic [_BITWIDTH_ALLOC_IST_NUM-1:0] grant_data [2];
+    logic [ALLOC_WIDTH-1:0] ranked_grant;
+    logic [STRUCT_IST_BANKS*ALLOC_CAND_WIDTH-1:0] prepared_candidates;
+    wire [FREE_BANK_COUNT_WIDTH-1:0] available_tree [2*STRUCT_IST_BANKS];
+    assign available_tree[0] = '0;
+    for (genvar b=0; b<STRUCT_IST_BANKS; b++) begin : G_GRANT_ELIGIBLE
+        wire eligible = candidate_valid[b] && candidate_count[b] != 0;
+        assign available_tree[STRUCT_IST_BANKS+b] = FREE_BANK_COUNT_WIDTH'(eligible);
+        // Return selection directly to the originating bank, without decoding
+        // an address that has already passed through the grant data mux.
+        assign candidate_take[b] = grant_push && eligible &&
+            prepared_rank(prepared_candidates,b) < FREE_BANK_COUNT_WIDTH'(STRUCT_DECODE_NEW_INST);
+    end
+    for (genvar node=1; node<STRUCT_IST_BANKS; node++) begin : G_GRANT_CAPACITY
+        assign available_tree[node] = available_tree[2*node]+available_tree[2*node+1];
+    end
 
-    // Admission needs only enough distinct non-full banks, not their ordering.
-    // Reduce each bank to one bit, then count these bits with a balanced tree.
-    // This runs alongside allocation_offers and adds no registered stage.
+
+    always_comb begin
+        allocation_reserved = '0;
+        for (int b = 0; b < STRUCT_IST_BANKS; b++)
+            if (candidate_valid[b]) allocation_reserved[int'(candidate_row_reg[b])*STRUCT_IST_BANKS+b] = 1'b1;
+        for (int q = 0; q < 2; q++)
+            if (grant_valid[q])
+                for (int lane = 0; lane < STRUCT_DECODE_NEW_INST; lane++)
+                    allocation_reserved[grant_data[q][lane*_BITWIDTH_STRUCT_INST_STATE_ENTRIES +: _BITWIDTH_STRUCT_INST_STATE_ENTRIES]] = 1'b1;
+    end
+    assign allocation_unavailable = active_entries | allocation_reserved;
+    for (genvar b = 0; b < STRUCT_IST_BANKS; b++) begin : G_FREE_PREPARE
+        logic [FREE_COUNT_WIDTH-1:0] count_tree [2*FREE_ROW_LEAVES];
+        logic [ROW_WIDTH-1:0] row_tree [2*FREE_ROW_LEAVES];
+        always_comb begin
+            count_tree[0] = '0; row_tree[0] = '0;
+            for (int r = 0; r < FREE_ROW_LEAVES; r++) begin
+                count_tree[FREE_ROW_LEAVES+r] = '0;
+                row_tree[FREE_ROW_LEAVES+r] = ROW_WIDTH'(r);
+                if (r < BANK_ROWS && r*STRUCT_IST_BANKS+b < STRUCT_INST_STATE_ENTRIES)
+                    count_tree[FREE_ROW_LEAVES+r] = FREE_COUNT_WIDTH'(!allocation_unavailable[r*STRUCT_IST_BANKS+b]);
+            end
+            for (int node = FREE_ROW_LEAVES-1; node > 0; node--) begin
+                count_tree[node] = count_tree[2*node]+count_tree[2*node+1];
+                row_tree[node] = count_tree[2*node] != 0 ? row_tree[2*node] : row_tree[2*node+1];
+            end
+            prepare_count[b] = count_tree[1]; prepare_row[b] = row_tree[1];
+        end
+        wire [BANK_WIDTH-1:0] distance_from_start = BANK_WIDTH'(b)-alloc_start;
+        assign prepared_candidates[b*ALLOC_CAND_WIDTH +: ALLOC_CAND_WIDTH] = {
+            candidate_valid[b] ? candidate_count[b] : FREE_COUNT_WIDTH'(0),
+            ~distance_from_start,
+            _BITWIDTH_STRUCT_INST_STATE_ENTRIES'(int'(candidate_row_reg[b])*STRUCT_IST_BANKS+b)};
+    end
+    assign ranked_grant = rank_prepared(prepared_candidates);
+    assign grant_push = reset_n && grant_count < 2 &&
+        available_tree[1] >= FREE_BANK_COUNT_WIDTH'(STRUCT_DECODE_NEW_INST);
+    assign grant_pop = nel_accept_enable && (|i_nel_new_inst_valid);
+    assign allocate_valid = {STRUCT_DECODE_NEW_INST{reset_n && grant_count != 0}};
+    assign allocate_alloc_num_out = grant_data[grant_read_ptr];
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            candidate_valid <= '0; grant_valid <= '0; grant_count <= '0;
+            grant_read_ptr <= 0; grant_write_ptr <= 0;
+            for (int q = 0; q < 2; q++) grant_data[q] <= '0;
+            for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
+                candidate_row_reg[b] <= '0; candidate_count[b] <= '0;
+            end
+        end else begin
+            grant_count <= grant_count+2'(grant_push)-2'(grant_pop);
+            if (grant_pop) begin
+                grant_valid[grant_read_ptr] <= 0; grant_read_ptr <= ~grant_read_ptr;
+            end
+            if (grant_push) begin
+                grant_data[grant_write_ptr] <= ranked_grant[0 +: _BITWIDTH_ALLOC_IST_NUM];
+                grant_valid[grant_write_ptr] <= 1; grant_write_ptr <= ~grant_write_ptr;
+            end
+            for (int b = 0; b < STRUCT_IST_BANKS; b++) begin
+                candidate_count[b] <= prepare_count[b]+FREE_COUNT_WIDTH'(candidate_valid[b] && !candidate_take[b]);
+                if (!candidate_valid[b] || candidate_take[b]) begin
+                    candidate_valid[b] <= prepare_count[b] != 0;
+                    if (prepare_count[b] != 0) candidate_row_reg[b] <= prepare_row[b];
+                end
+            end
+        end
+    end
+
+
+    // Reference capacity helper for the allocation-policy tests.
     function automatic logic allocation_capacity(
         input logic [STRUCT_INST_STATE_ENTRIES-1:0] active
     );
@@ -286,7 +387,7 @@ module instruction_state_table #(
     // this wiring outside the NEL-consuming block also makes that independence
     // visible to simulators when NEL gates its Valid with our Get.
     assign nel_accept_enable = reset_n &&
-        allocation_capacity(active_entries) &&
+        (&allocate_valid) &&
         !(|(bypass_valid & ~i_rs_ready_inst_get[STRUCT_IST_ISSUE_WIDTH +: STRUCT_DECODE_NEW_INST]));
     assign o_nel_new_inst_get = {STRUCT_DECODE_NEW_INST{nel_accept_enable}};
 

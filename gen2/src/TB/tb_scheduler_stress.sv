@@ -13,7 +13,10 @@ module tb_scheduler_stress #(
     parameter int ISSUE = EX_CORES,
     parameter int BANKS = 1 << $clog2(DECODE > ISSUE ? DECODE : ISSUE),
     parameter int RS_FIFO = IST_ENTRIES,
-    parameter int COUNT = 384
+    parameter int COUNT = 384,
+    parameter bit LSQ = 0,
+    parameter int LSQ_ENTRIES = 7,
+    parameter int LSQ_PATH = 2
 );
     localparam int FLOW_W = WINDOWS > 1 ? $clog2(WINDOWS) : 1;
     localparam int TAG_W = FLOW_W+32;
@@ -123,7 +126,8 @@ module tb_scheduler_stress #(
         .STRUCT_PRM_ENTRY_UPDATE(UPDATES), .STRUCT_RS_FIFO_WIDTH(RS_FIFO),
         .STRUCT_EX_CORES(EX_CORES), .STRUCT_RS_OUT_ENTRY('{1, EX_CORES-2, 1}),
         .STRUCT_EX_OUT_RESULT('{default: 1}), .STRUCT_EX_OUT_RESULT_SUM(EX_CORES),
-        .STRUCT_IST_ISSUE_WIDTH(ISSUE), .STRUCT_IST_BANKS(BANKS)
+        .STRUCT_IST_ISSUE_WIDTH(ISSUE), .STRUCT_IST_BANKS(BANKS),
+        .ENABLE_LSQ(LSQ), .STRUCT_LSQ_ENTRIES(LSQ_ENTRIES), .STRUCT_LSQ_EX_PATH(LSQ_PATH)
     ) dut (
         .clk(clk), .reset_n(reset_n),
         .o_im_req_pc_valid(req_valid), .i_im_req_pc_get(req_get), .o_im_req_pc(req_pc),
@@ -209,6 +213,9 @@ module tb_scheduler_stress #(
                     expected_path = e == 0 ? 0 : (e == EX_CORES-1 ? 2 : 1);
                     if (id % 3 != expected_path || ex_data[e*INST_W+TAG_W +: 2] != 2'(expected_path))
                         $fatal(1, "Wrong EX path id=%0d lane=%0d", id, e);
+                    if (LSQ && expected_path == LSQ_PATH)
+                        for (int older = LSQ_PATH; older < id; older += 3)
+                            if (!done[older]) $fatal(1, "LSQ issued before older memory completion id=%0d older=%0d", id, older);
                     if (ex_data[e*INST_W +: TAG_W] != tags[id] ||
                         ex_data[e*INST_W+TAG_W+2 +: 5] != 5'(id) ||
                         ex_data[e*INST_W+TAG_W+7 +: 32] != immediate(id)) $fatal(1, "Corrupted payload id=%0d", id);
@@ -266,7 +273,11 @@ module tb_scheduler_stress #(
             if (issue_count != COUNT || done_count != COUNT) $fatal(1, "Extra issue after drain");
             for (int p = 0; p < 3; p++) if (path_count[p] == 0) $fatal(1, "Missing EX path coverage");
             if (out_of_order == 0 || completion_ooo == 0) $fatal(1, "Missing out-of-order coverage");
-            if (overflow_stall == 0 || recycled == 0) $fatal(1, "Missing PRM overflow/recycling coverage");
+            // A tiny serialized LSQ throttles decode enough to prevent PRM
+            // overflow. Keep the overflow requirement for the original OFF
+            // stress cases; register recycling is required in both modes.
+            if (!LSQ && overflow_stall == 0) $fatal(1, "Missing PRM overflow coverage");
+            if (recycled == 0) $fatal(1, "Missing register recycling coverage");
             if (checked_returns == 0) $fatal(1, "Missing FCL return contract coverage");
             for (int p = 0; p < 64; p++)
                 if (pending_notifications[p] != 0) $fatal(1, "Pending PRM notification after drain");

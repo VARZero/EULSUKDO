@@ -8,7 +8,8 @@ module tb_scheduler_flow #(
     parameter int WINDOWS = 3,
     parameter int RANGE = 5,
     parameter int UPDATES = 3,
-    parameter int WRITES = 0
+    parameter int WRITES = 0,
+    parameter bit LSQ = 0
 );
     localparam int FLOW_W = (WINDOWS > 1)? $clog2(WINDOWS) : 1;
     localparam int TAG_W = 32+FLOW_W;
@@ -41,7 +42,8 @@ module tb_scheduler_flow #(
     eulsukdo_scheduler #(
         .STRUCT_DECODE_NEW_INST(DECODE), .STRUCT_FLOW_WINDOWS(WINDOWS),
         .STRUCT_FLOW_PC_MAX_RANGE(RANGE), .STRUCT_INST_STATE_ENTRIES(16),
-        .STRUCT_PRM_ENTRY_UPDATE(UPDATES)
+        .STRUCT_PRM_ENTRY_UPDATE(UPDATES), .ENABLE_LSQ(LSQ),
+        .STRUCT_LSQ_EX_PATH(0), .STRUCT_LSQ_ENTRIES(DECODE+2)
     ) dut (
         .clk(clk), .reset_n(reset_n),
         .o_im_req_pc_valid(req_valid), .i_im_req_pc_get(req_get), .o_im_req_pc(req_pc),

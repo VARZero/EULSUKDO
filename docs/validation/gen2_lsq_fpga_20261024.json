@@ -1,0 +1,531 @@
+{
+  "date": "2026-10-24",
+  "tool": "Vivado 2020.2",
+  "part": "xc7z020clg400-1",
+  "scope": "OOC scheduler; no external IO delay constraints, board wrapper, bitstream or hardware test",
+  "parameters": {
+    "ENABLE_LSQ": 1,
+    "STRUCT_LSQ_ENTRIES": 32,
+    "STRUCT_LSQ_EX_PATH": 2,
+    "STRUCT_DECODE_NEW_INST": 2,
+    "STRUCT_EX_CORES": 5
+  },
+  "clock_source": "BUFGCTRL_X0Y16",
+  "max_threads": 8,
+  "recommended_fresh_build_mhz": 70,
+  "maximum_measured_fixed_route_mhz": 74.6,
+  "maximum_is_not_a_fresh_74p6mhz_build": true,
+  "compatibility": "The two variable $countones uses are replaced only in the snapshot with the same helper used by the prior 75 MHz baseline.",
+  "original_source_hashes": {
+    "_element_logics.sv": "b330cb3f3af0bc1e0650f40ea11b5d407378718bc6a945f669c1228f1fa8df6d",
+    "eulsukdo_scheduler.sv": "333f20659a0ae18bf7f22318e288b0729fc8089b01fa28db4b35b84686dcbdad",
+    "flow_control_logic.sv": "8bc64d4778f86e270172a5777723830b58932e171d40ec4c9ad236ac465715c6",
+    "instruction_state_table.sv": "3362962bcd15bd66431baafafef0f48bec3f8be552c65902b832e75028f7569e",
+    "load_store_queue.sv": "2f034721275a73c6400af5d1868378e337f17c7cae8f56dd2a8cedf9e16b7a99",
+    "new_entry_logic.sv": "bab7518424804500c5c9d42fca1802fed3f602f7ba690dd9084c309917e33193",
+    "physical_register_mapper.sv": "05f8efbe29c7378fbb6d5e25c6ed6e425d3d5aeba9dbb0cc85c733fa77b41d06",
+    "ready_station.sv": "d33c25b208cdcc0f24d91e951ac51608d30e81b0c305c3fc9e0cdc73915ab059",
+    "write_back_concatenation.sv": "9a62e2fdcdd6723a241d5d7e1264be3053427fbf47efa18dc878f6cd6fb41b68"
+  },
+  "synthesis_source_hashes": {
+    "_element_logics.sv": "2bd9182377819749da5b5637c9fdfa907e17db30f732cd8c93e0d730ec441fa3",
+    "eulsukdo_scheduler.sv": "e4bf5f84d67fa723b7b6da365184abbf354d93e8e217118466f2996c5d088812",
+    "flow_control_logic.sv": "e7a623c188d76c9597fdc17c1316349fccd1e8991f8221c2e82e952732529bd0",
+    "instruction_state_table.sv": "83cd66b6ea723dc3f4971127c6e16314a5575d42956e763bcccebe302718906e",
+    "load_store_queue.sv": "2f034721275a73c6400af5d1868378e337f17c7cae8f56dd2a8cedf9e16b7a99",
+    "new_entry_logic.sv": "2bb94854ddb91aa959b72c2ec975a9b9f8d92936a3b5096458eaff350d2a417e",
+    "physical_register_mapper.sv": "87fe77d260d59fc1f6eb1e59195ef304de1bb1dd29861d2f1e385d30e41886e4",
+    "ready_station.sv": "a8c462dbec8f2c8ab946861e04e9f8b29db2da2809c855670c1ccff457df691e",
+    "write_back_concatenation.sv": "94ad19cb421904318686796c22500137c8e350f2c5aec83a28a0e34423a27ecd"
+  },
+  "rtl_matches_previously_passed_20_case_lsq_regression": true,
+  "previous_lsq_off_75mhz_routed": {
+    "wns_ns": 0.014,
+    "tns_ns": 0.0,
+    "setup_failing_endpoints": 0.0,
+    "setup_total_endpoints": 27415.0,
+    "whs_ns": 0.044,
+    "ths_ns": 0.0,
+    "hold_failing_endpoints": 0.0,
+    "hold_total_endpoints": 27415.0,
+    "wpws_ns": 5.416,
+    "tpws_ns": 0.0,
+    "pulse_failing_endpoints": 0.0,
+    "pulse_total_endpoints": 13520.0,
+    "timing_met": true,
+    "luts": 34506.0,
+    "ff": 13228.0,
+    "bram_tiles": 43.5,
+    "no_clock": 0,
+    "unconstrained_internal_endpoints": 0,
+    "loops": 0,
+    "latch_loops": 0,
+    "critical_path_and_netlist": {
+      "Latches": "0",
+      "Black boxes": "0",
+      "Setup slack": "0.014 ns",
+      "Data path delay": "13.163 ns",
+      "Logic levels": "21",
+      "Startpoint": "U_NEW_ENTRY_LOGIC/stage1_reg[43]/C",
+      "Endpoint": "U_FLOW_CONTROL_LOGIC/G_WINDOW[0].U_FDU/retired_count_reg[3]/D",
+      "Slack-derived frequency estimate": "75.07883277441313 MHz (slack-derived; not a separate frequency validation)",
+      "Hold slack": "0.044 ns"
+    },
+    "top_level_hierarchy": {
+      "U_FLOW_CONTROL_LOGIC": {
+        "luts": 6585,
+        "ff": 2411,
+        "bram_tiles": 0.0
+      },
+      "U_INSTRUCTION_STATE_TABLE": {
+        "luts": 13238,
+        "ff": 3897,
+        "bram_tiles": 12.0
+      },
+      "U_NEW_ENTRY_LOGIC": {
+        "luts": 2819,
+        "ff": 630,
+        "bram_tiles": 0.0
+      },
+      "U_PHYSICAL_REGISTER_MAPPER": {
+        "luts": 8728,
+        "ff": 3611,
+        "bram_tiles": 0.0
+      },
+      "U_READY_STATION": {
+        "luts": 3149,
+        "ff": 2679,
+        "bram_tiles": 31.5
+      }
+    },
+    "drc": [
+      {
+        "rule": "CHECK-3",
+        "severity": "Warning",
+        "description": "Report rule limit reached",
+        "reported_count": 2
+      },
+      {
+        "rule": "REQP-1839",
+        "severity": "Warning",
+        "description": "RAMB36 async control check",
+        "reported_count": 20
+      },
+      {
+        "rule": "REQP-1840",
+        "severity": "Warning",
+        "description": "RAMB18 async control check",
+        "reported_count": 20
+      },
+      {
+        "rule": "RTSTAT-10",
+        "severity": "Warning",
+        "description": "No routable loads",
+        "reported_count": 1
+      },
+      {
+        "rule": "ZPS7-1",
+        "severity": "Warning",
+        "description": "PS7 block required",
+        "reported_count": 1
+      }
+    ]
+  },
+  "builds": {
+    "75": {
+      "output_directory": "gen2/build/lsq_fpga_20261024/pynq_z2_2d5i_75mhz",
+      "requested_mhz": 75,
+      "fresh_build_pass": false,
+      "routed": {
+        "wns_ns": -0.07,
+        "tns_ns": -0.07,
+        "setup_failing_endpoints": 1.0,
+        "setup_total_endpoints": 28376.0,
+        "whs_ns": 0.074,
+        "ths_ns": 0.0,
+        "hold_failing_endpoints": 0.0,
+        "hold_total_endpoints": 28376.0,
+        "wpws_ns": 5.416,
+        "tpws_ns": 0.0,
+        "pulse_failing_endpoints": 0.0,
+        "pulse_total_endpoints": 13820.0,
+        "timing_met": false,
+        "luts": 33593.0,
+        "ff": 13428.0,
+        "bram_tiles": 45.0,
+        "no_clock": 0,
+        "unconstrained_internal_endpoints": 0,
+        "loops": 0,
+        "latch_loops": 0,
+        "critical_path_and_netlist": {
+          "Latches": "0",
+          "Black boxes": "0",
+          "Setup slack": "-0.070 ns",
+          "Data path delay": "13.276 ns",
+          "Logic levels": "16",
+          "Startpoint": "U_NEW_ENTRY_LOGIC/stage1_reg[44]/C",
+          "Endpoint": "U_FLOW_CONTROL_LOGIC/G_WINDOW[1].U_FDU/retired_count_reg[4]/D",
+          "Hold slack": "0.074 ns"
+        },
+        "top_level_hierarchy": {
+          "G_LSQ.U_LSQ": {
+            "luts": 505,
+            "ff": 235,
+            "bram_tiles": 1.5
+          },
+          "U_FLOW_CONTROL_LOGIC": {
+            "luts": 6570,
+            "ff": 2411,
+            "bram_tiles": 0.0
+          },
+          "U_INSTRUCTION_STATE_TABLE": {
+            "luts": 12677,
+            "ff": 3910,
+            "bram_tiles": 12.0
+          },
+          "U_NEW_ENTRY_LOGIC": {
+            "luts": 2931,
+            "ff": 630,
+            "bram_tiles": 0.0
+          },
+          "U_PHYSICAL_REGISTER_MAPPER": {
+            "luts": 7780,
+            "ff": 3563,
+            "bram_tiles": 0.0
+          },
+          "U_READY_STATION": {
+            "luts": 3153,
+            "ff": 2679,
+            "bram_tiles": 31.5
+          }
+        },
+        "lsq_from_slack_ns": 0.263,
+        "lsq_to_slack_ns": 0.859,
+        "drc": [
+          {
+            "rule": "CHECK-3",
+            "severity": "Warning",
+            "description": "Report rule limit reached",
+            "reported_count": 2
+          },
+          {
+            "rule": "REQP-1839",
+            "severity": "Warning",
+            "description": "RAMB36 async control check",
+            "reported_count": 20
+          },
+          {
+            "rule": "REQP-1840",
+            "severity": "Warning",
+            "description": "RAMB18 async control check",
+            "reported_count": 20
+          },
+          {
+            "rule": "RTSTAT-10",
+            "severity": "Warning",
+            "description": "No routable loads",
+            "reported_count": 1
+          },
+          {
+            "rule": "ZPS7-1",
+            "severity": "Warning",
+            "description": "PS7 block required",
+            "reported_count": 1
+          }
+        ]
+      },
+      "route": {
+        "routable_nets": 43942,
+        "fully_routed_nets": 43942,
+        "routing_error_nets": 0,
+        "complete": true
+      },
+      "fixed_route_sweep": [
+        {
+          "mhz": 70.0,
+          "period_ns": 14.286,
+          "setup_slack_ns": 0.883,
+          "hold_slack_ns": 0.074,
+          "wns_ns": 0.883,
+          "tns_ns": 0.0,
+          "setup_failing_endpoints": 0.0,
+          "setup_total_endpoints": 28376.0,
+          "whs_ns": 0.074,
+          "ths_ns": 0.0,
+          "hold_failing_endpoints": 0.0,
+          "hold_total_endpoints": 28376.0,
+          "wpws_ns": 5.893,
+          "tpws_ns": 0.0,
+          "pulse_failing_endpoints": 0.0,
+          "pulse_total_endpoints": 13820.0,
+          "timing_met": true
+        },
+        {
+          "mhz": 74.6,
+          "period_ns": 13.405,
+          "setup_slack_ns": 0.002,
+          "hold_slack_ns": 0.074,
+          "wns_ns": 0.002,
+          "tns_ns": 0.0,
+          "setup_failing_endpoints": 0.0,
+          "setup_total_endpoints": 28376.0,
+          "whs_ns": 0.074,
+          "ths_ns": 0.0,
+          "hold_failing_endpoints": 0.0,
+          "hold_total_endpoints": 28376.0,
+          "wpws_ns": 5.452,
+          "tpws_ns": 0.0,
+          "pulse_failing_endpoints": 0.0,
+          "pulse_total_endpoints": 13820.0,
+          "timing_met": true
+        },
+        {
+          "mhz": 74.7,
+          "period_ns": 13.387,
+          "setup_slack_ns": -0.016,
+          "hold_slack_ns": 0.074,
+          "wns_ns": -0.016,
+          "tns_ns": -0.016,
+          "setup_failing_endpoints": 1.0,
+          "setup_total_endpoints": 28376.0,
+          "whs_ns": 0.074,
+          "ths_ns": 0.0,
+          "hold_failing_endpoints": 0.0,
+          "hold_total_endpoints": 28376.0,
+          "wpws_ns": 5.443,
+          "tpws_ns": 0.0,
+          "pulse_failing_endpoints": 0.0,
+          "pulse_total_endpoints": 13820.0,
+          "timing_met": false
+        },
+        {
+          "mhz": 75.0,
+          "period_ns": 13.333,
+          "setup_slack_ns": -0.07,
+          "hold_slack_ns": 0.074,
+          "wns_ns": -0.07,
+          "tns_ns": -0.07,
+          "setup_failing_endpoints": 1.0,
+          "setup_total_endpoints": 28376.0,
+          "whs_ns": 0.074,
+          "ths_ns": 0.0,
+          "hold_failing_endpoints": 0.0,
+          "hold_total_endpoints": 28376.0,
+          "wpws_ns": 5.416,
+          "tpws_ns": 0.0,
+          "pulse_failing_endpoints": 0.0,
+          "pulse_total_endpoints": 13820.0,
+          "timing_met": false
+        }
+      ],
+      "flow_script_sha256": "149e08de4ea2655aebff1646a80d4fdfc20d637bbc98159ed8cfd58ae7f60dea"
+    },
+    "70": {
+      "output_directory": "gen2/build/lsq_fpga_20261024/pynq_z2_2d5i_70mhz",
+      "requested_mhz": 70,
+      "fresh_build_pass": true,
+      "routed": {
+        "wns_ns": 0.252,
+        "tns_ns": 0.0,
+        "setup_failing_endpoints": 0.0,
+        "setup_total_endpoints": 28376.0,
+        "whs_ns": 0.035,
+        "ths_ns": 0.0,
+        "hold_failing_endpoints": 0.0,
+        "hold_total_endpoints": 28376.0,
+        "wpws_ns": 5.893,
+        "tpws_ns": 0.0,
+        "pulse_failing_endpoints": 0.0,
+        "pulse_total_endpoints": 13820.0,
+        "timing_met": true,
+        "luts": 33526.0,
+        "ff": 13428.0,
+        "bram_tiles": 45.0,
+        "no_clock": 0,
+        "unconstrained_internal_endpoints": 0,
+        "loops": 0,
+        "latch_loops": 0,
+        "critical_path_and_netlist": {
+          "Latches": "0",
+          "Black boxes": "0",
+          "Setup slack": "0.252 ns",
+          "Data path delay": "13.652 ns",
+          "Logic levels": "14",
+          "Startpoint": "U_PHYSICAL_REGISTER_MAPPER/U_PRM_OUTPUT_FIFO/out_ord_vg_valid_reg_reg[12]/C",
+          "Endpoint": "U_PHYSICAL_REGISTER_MAPPER/GEN_PRM_IST_MAP[0].U_PRM_IST_MAP/reg_mem_reg[3][5]/D",
+          "Hold slack": "0.035 ns"
+        },
+        "top_level_hierarchy": {
+          "G_LSQ.U_LSQ": {
+            "luts": 510,
+            "ff": 235,
+            "bram_tiles": 1.5
+          },
+          "U_FLOW_CONTROL_LOGIC": {
+            "luts": 6572,
+            "ff": 2411,
+            "bram_tiles": 0.0
+          },
+          "U_INSTRUCTION_STATE_TABLE": {
+            "luts": 12661,
+            "ff": 3910,
+            "bram_tiles": 12.0
+          },
+          "U_NEW_ENTRY_LOGIC": {
+            "luts": 2930,
+            "ff": 630,
+            "bram_tiles": 0.0
+          },
+          "U_PHYSICAL_REGISTER_MAPPER": {
+            "luts": 7726,
+            "ff": 3563,
+            "bram_tiles": 0.0
+          },
+          "U_READY_STATION": {
+            "luts": 3152,
+            "ff": 2679,
+            "bram_tiles": 31.5
+          }
+        },
+        "lsq_from_slack_ns": 1.227,
+        "lsq_to_slack_ns": 2.012,
+        "drc": [
+          {
+            "rule": "CHECK-3",
+            "severity": "Warning",
+            "description": "Report rule limit reached",
+            "reported_count": 2
+          },
+          {
+            "rule": "REQP-1839",
+            "severity": "Warning",
+            "description": "RAMB36 async control check",
+            "reported_count": 20
+          },
+          {
+            "rule": "REQP-1840",
+            "severity": "Warning",
+            "description": "RAMB18 async control check",
+            "reported_count": 20
+          },
+          {
+            "rule": "RTSTAT-10",
+            "severity": "Warning",
+            "description": "No routable loads",
+            "reported_count": 1
+          },
+          {
+            "rule": "ZPS7-1",
+            "severity": "Warning",
+            "description": "PS7 block required",
+            "reported_count": 1
+          }
+        ]
+      },
+      "route": {
+        "routable_nets": 43949,
+        "fully_routed_nets": 43949,
+        "routing_error_nets": 0,
+        "complete": true
+      },
+      "fixed_route_sweep": [
+        {
+          "mhz": 65.0,
+          "period_ns": 15.385,
+          "setup_slack_ns": 1.351,
+          "hold_slack_ns": 0.035,
+          "wns_ns": 1.351,
+          "tns_ns": 0.0,
+          "setup_failing_endpoints": 0.0,
+          "setup_total_endpoints": 28376.0,
+          "whs_ns": 0.035,
+          "ths_ns": 0.0,
+          "hold_failing_endpoints": 0.0,
+          "hold_total_endpoints": 28376.0,
+          "wpws_ns": 6.442,
+          "tpws_ns": 0.0,
+          "pulse_failing_endpoints": 0.0,
+          "pulse_total_endpoints": 13820.0,
+          "timing_met": true
+        },
+        {
+          "mhz": 70.0,
+          "period_ns": 14.286,
+          "setup_slack_ns": 0.252,
+          "hold_slack_ns": 0.035,
+          "wns_ns": 0.252,
+          "tns_ns": 0.0,
+          "setup_failing_endpoints": 0.0,
+          "setup_total_endpoints": 28376.0,
+          "whs_ns": 0.035,
+          "ths_ns": 0.0,
+          "hold_failing_endpoints": 0.0,
+          "hold_total_endpoints": 28376.0,
+          "wpws_ns": 5.893,
+          "tpws_ns": 0.0,
+          "pulse_failing_endpoints": 0.0,
+          "pulse_total_endpoints": 13820.0,
+          "timing_met": true
+        },
+        {
+          "mhz": 71.2,
+          "period_ns": 14.045,
+          "setup_slack_ns": 0.011,
+          "hold_slack_ns": 0.035,
+          "wns_ns": 0.011,
+          "tns_ns": 0.0,
+          "setup_failing_endpoints": 0.0,
+          "setup_total_endpoints": 28376.0,
+          "whs_ns": 0.035,
+          "ths_ns": 0.0,
+          "hold_failing_endpoints": 0.0,
+          "hold_total_endpoints": 28376.0,
+          "wpws_ns": 5.772,
+          "tpws_ns": 0.0,
+          "pulse_failing_endpoints": 0.0,
+          "pulse_total_endpoints": 13820.0,
+          "timing_met": true
+        },
+        {
+          "mhz": 71.3,
+          "period_ns": 14.025,
+          "setup_slack_ns": -0.009,
+          "hold_slack_ns": 0.035,
+          "wns_ns": -0.009,
+          "tns_ns": -0.009,
+          "setup_failing_endpoints": 1.0,
+          "setup_total_endpoints": 28376.0,
+          "whs_ns": 0.035,
+          "ths_ns": 0.0,
+          "hold_failing_endpoints": 0.0,
+          "hold_total_endpoints": 28376.0,
+          "wpws_ns": 5.762,
+          "tpws_ns": 0.0,
+          "pulse_failing_endpoints": 0.0,
+          "pulse_total_endpoints": 13820.0,
+          "timing_met": false
+        },
+        {
+          "mhz": 75.0,
+          "period_ns": 13.333,
+          "setup_slack_ns": -0.701,
+          "hold_slack_ns": 0.035,
+          "wns_ns": -0.701,
+          "tns_ns": -86.178,
+          "setup_failing_endpoints": 518.0,
+          "setup_total_endpoints": 28376.0,
+          "whs_ns": 0.035,
+          "ths_ns": 0.0,
+          "hold_failing_endpoints": 0.0,
+          "hold_total_endpoints": 28376.0,
+          "wpws_ns": 5.416,
+          "tpws_ns": 0.0,
+          "pulse_failing_endpoints": 0.0,
+          "pulse_total_endpoints": 13820.0,
+          "timing_met": false
+        }
+      ],
+      "flow_script_sha256": "149e08de4ea2655aebff1646a80d4fdfc20d637bbc98159ed8cfd58ae7f60dea"
+    }
+  }
+}

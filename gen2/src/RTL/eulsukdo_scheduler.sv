@@ -36,6 +36,12 @@ module eulsukdo_scheduler #(
     // Minimum instruction capacity per RS EX-path FIFO (not data bit width).
     parameter int STRUCT_RS_FIFO_WIDTH                = 128,
 
+    // Optional serialized LD/ST ordering. All instructions on this EX path
+    // participate; completion must include stores (rd=0) in the WBC results.
+    parameter bit ENABLE_LSQ                          = 1'b0,
+    parameter int STRUCT_LSQ_ENTRIES                  = 32,
+    parameter int STRUCT_LSQ_EX_PATH                  = 2,
+
     // Synthesis Create Local Parameters
     localparam int _BITWIDTH_IS_INST_REGS               = $clog2(IS_INST_REGS),
     localparam int _BITWIDTH_STRUCT_INST_STATE_ENTRIES  = $clog2(STRUCT_INST_STATE_ENTRIES),
@@ -132,6 +138,8 @@ module eulsukdo_scheduler #(
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_ist_new_inst_valid;
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_ist_new_inst_get;
     wire [(STRUCT_DECODE_NEW_INST *(_BITWIDTH_INTERNAL_INST_WIDTH) )-1:0]                     nel_ist_new_inst_data;
+    wire [STRUCT_DECODE_NEW_INST-1:0]                                                         ist_nel_accept;
+    wire                                                                                     lsq_order_ready;
 
     // NEL -> FCL : Retired Physical Registers
     wire [STRUCT_DECODE_NEW_INST-1:0]                                                         nel_fcl_retired_phyreg_valid;
@@ -307,7 +315,7 @@ module eulsukdo_scheduler #(
 
         // New Internal Instruction Input (NEL)
         .i_nel_new_inst_valid           (nel_ist_new_inst_valid),
-        .o_nel_new_inst_get             (nel_ist_new_inst_get),
+        .o_nel_new_inst_get             (ist_nel_accept),
         .i_nel_new_inst_data            (nel_ist_new_inst_data),
 
         // Ready Physical Registers Input (PRM)
@@ -538,10 +546,62 @@ module eulsukdo_scheduler #(
     assign dec_nel_decode_jump_reg    = i_nel_decode_jump_reg;
     assign dec_nel_decode_branch      = i_nel_decode_branch;
 
-    // EX Inst Push (RS Out)
-    assign o_rs_entry_valid           = rs_ex_wait_inst_valid;
-    assign rs_ex_wait_inst_get        = i_rs_entry_get;
-    assign o_rs_entry_data            = rs_ex_wait_inst_data;
+    // NEL valid is a transfer pulse, generated only when ALL get bits are high.
+    // Reserve a whole decode bundle without feeding that pulse back into ready.
+    assign nel_ist_new_inst_get = ist_nel_accept & {STRUCT_DECODE_NEW_INST{lsq_order_ready}};
+
+    function automatic int lsq_ex_offset(input int path_index);
+        int offset = 0;
+        for (int p = 0; p < path_index; p++) offset += STRUCT_RS_OUT_ENTRY[p];
+        return offset;
+    endfunction
+
+    generate
+        if (ENABLE_LSQ) begin : G_LSQ
+            localparam int FIRST = lsq_ex_offset(STRUCT_LSQ_EX_PATH);
+            localparam int LANES = STRUCT_RS_OUT_ENTRY[STRUCT_LSQ_EX_PATH];
+            wire [STRUCT_DECODE_NEW_INST-1:0] order_valid;
+            wire [STRUCT_DECODE_NEW_INST*_BITWIDTH_FLOW_WINDOWS_PC-1:0] order_tag;
+            for (genvar d = 0; d < STRUCT_DECODE_NEW_INST; d++) begin : G_ORDER
+                assign order_valid[d] = nel_ist_new_inst_valid[d] && ist_nel_accept[d] &&
+                    (nel_ist_new_inst_data[d*_BITWIDTH_INTERNAL_INST_WIDTH+_BITWIDTH_FLOW_WINDOWS_PC
+                        +: _BITWIDTH_STRUCT_EX_PATH] == _BITWIDTH_STRUCT_EX_PATH'(STRUCT_LSQ_EX_PATH));
+                assign order_tag[d*_BITWIDTH_FLOW_WINDOWS_PC +: _BITWIDTH_FLOW_WINDOWS_PC] =
+                    nel_ist_new_inst_data[d*_BITWIDTH_INTERNAL_INST_WIDTH +: _BITWIDTH_FLOW_WINDOWS_PC];
+            end
+            load_store_queue #(
+                .TAG_WIDTH(_BITWIDTH_FLOW_WINDOWS_PC), .INST_WIDTH(_BITWIDTH_EX_INST_WIDTH),
+                .ORDER_CHANNELS(STRUCT_DECODE_NEW_INST), .READY_CHANNELS(LANES),
+                .DONE_CHANNELS(STRUCT_EX_OUT_RESULT_SUM), .DEPTH(STRUCT_LSQ_ENTRIES)
+            ) U_LSQ (
+                .clk(clk), .reset_n(reset_n),
+                .i_order_valid(order_valid), .i_order_tag(order_tag), .o_order_ready(lsq_order_ready),
+                .i_ready_valid(rs_ex_wait_inst_valid[FIRST +: LANES]),
+                .o_ready_get(rs_ex_wait_inst_get[FIRST +: LANES]),
+                .i_ready_data(rs_ex_wait_inst_data[FIRST*_BITWIDTH_EX_INST_WIDTH +: LANES*_BITWIDTH_EX_INST_WIDTH]),
+                .o_ex_valid(o_rs_entry_valid[FIRST +: LANES]), .i_ex_get(i_rs_entry_get[FIRST +: LANES]),
+                .o_ex_data(o_rs_entry_data[FIRST*_BITWIDTH_EX_INST_WIDTH +: LANES*_BITWIDTH_EX_INST_WIDTH]),
+                .i_done_valid(wbc_fcl_done_pc_valid), .i_done_tag(wbc_fcl_done_pc_data)
+            );
+            for (genvar e = 0; e < STRUCT_EX_CORES; e++) begin : G_BYPASS_OTHER_PATHS
+                if (e < FIRST || e >= FIRST+LANES) begin
+                    assign o_rs_entry_valid[e] = rs_ex_wait_inst_valid[e];
+                    assign rs_ex_wait_inst_get[e] = i_rs_entry_get[e];
+                    assign o_rs_entry_data[e*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH] =
+                        rs_ex_wait_inst_data[e*_BITWIDTH_EX_INST_WIDTH +: _BITWIDTH_EX_INST_WIDTH];
+                end
+            end
+            initial begin
+                if (STRUCT_LSQ_EX_PATH < 0 || STRUCT_LSQ_EX_PATH >= STRUCT_EX_PATH || LANES < 1)
+                    $fatal(1, "LSQ requires a valid EX path with at least one output");
+            end
+        end else begin : G_NO_LSQ
+            assign lsq_order_ready = 1'b1;
+            assign o_rs_entry_valid = rs_ex_wait_inst_valid;
+            assign rs_ex_wait_inst_get = i_rs_entry_get;
+            assign o_rs_entry_data = rs_ex_wait_inst_data;
+        end
+    endgenerate
 
     // EX Result Receive (EX Out)
     assign ex_wbc_result_valid        = i_wbc_result_valid;

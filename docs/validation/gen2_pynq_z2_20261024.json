@@ -1,0 +1,193 @@
+{
+  "rtl_unchanged": true,
+  "sweep_scope": "Fixed routed 86 MHz implementation; clock constraint replaced and timing rechecked at each frequency",
+  "sweep": [
+    {
+      "mhz": 80.0,
+      "period_ns": 12.5,
+      "setup_slack_ns": -0.364,
+      "hold_slack_ns": 0.047,
+      "all_timing_met": false
+    },
+    {
+      "mhz": 78.0,
+      "period_ns": 12.821,
+      "setup_slack_ns": -0.043,
+      "hold_slack_ns": 0.047,
+      "all_timing_met": false
+    },
+    {
+      "mhz": 77.8,
+      "period_ns": 12.853,
+      "setup_slack_ns": -0.011,
+      "hold_slack_ns": 0.047,
+      "all_timing_met": false
+    },
+    {
+      "mhz": 77.7,
+      "period_ns": 12.87,
+      "setup_slack_ns": 0.006,
+      "hold_slack_ns": 0.047,
+      "all_timing_met": true
+    },
+    {
+      "mhz": 77.0,
+      "period_ns": 12.987,
+      "setup_slack_ns": 0.123,
+      "hold_slack_ns": 0.047,
+      "all_timing_met": true
+    },
+    {
+      "mhz": 75.0,
+      "period_ns": 13.333,
+      "setup_slack_ns": 0.469,
+      "hold_slack_ns": 0.047,
+      "all_timing_met": true
+    },
+    {
+      "mhz": 70.0,
+      "period_ns": 14.286,
+      "setup_slack_ns": 1.422,
+      "hold_slack_ns": 0.047,
+      "all_timing_met": true
+    }
+  ],
+  "reference_75mhz_route": {
+    "routable_nets": 43394,
+    "fully_routed_nets": 43394,
+    "routing_error_nets": 0,
+    "complete": true
+  },
+  "fresh_build_scope": "Independent synthesis/opt/place/route with 75 MHz applied before synthesis",
+  "fresh_requested_frequency_mhz": 75,
+  "fresh_requested_period_ns": 13.333333333333334,
+  "fresh_stages": {
+    "synth": {
+      "wns_ns": 0.802,
+      "tns_ns": 0.0,
+      "setup_failing_endpoints": 0.0,
+      "setup_total_endpoints": 27415.0,
+      "whs_ns": 0.21,
+      "ths_ns": 0.0,
+      "hold_failing_endpoints": 0.0,
+      "hold_total_endpoints": 27415.0,
+      "wpws_ns": 5.416,
+      "tpws_ns": 0.0,
+      "pulse_failing_endpoints": 0.0,
+      "pulse_total_endpoints": 13520.0,
+      "timing_met": true,
+      "luts": 34717.0,
+      "ff": 13228.0,
+      "bram_tiles": 43.5,
+      "no_clock": 0,
+      "unconstrained_internal_endpoints": 0,
+      "loops": 0,
+      "latch_loops": 0
+    },
+    "placed": {
+      "wns_ns": 0.503,
+      "tns_ns": 0.0,
+      "setup_failing_endpoints": 0.0,
+      "setup_total_endpoints": 27415.0,
+      "whs_ns": -0.061,
+      "ths_ns": -0.297,
+      "hold_failing_endpoints": 13.0,
+      "hold_total_endpoints": 27415.0,
+      "wpws_ns": 5.416,
+      "tpws_ns": 0.0,
+      "pulse_failing_endpoints": 0.0,
+      "pulse_total_endpoints": 13520.0,
+      "timing_met": false,
+      "luts": 34506.0,
+      "ff": 13228.0,
+      "bram_tiles": 43.5,
+      "no_clock": 0,
+      "unconstrained_internal_endpoints": 0,
+      "loops": 0,
+      "latch_loops": 0
+    },
+    "routed": {
+      "wns_ns": 0.014,
+      "tns_ns": 0.0,
+      "setup_failing_endpoints": 0.0,
+      "setup_total_endpoints": 27415.0,
+      "whs_ns": 0.044,
+      "ths_ns": 0.0,
+      "hold_failing_endpoints": 0.0,
+      "hold_total_endpoints": 27415.0,
+      "wpws_ns": 5.416,
+      "tpws_ns": 0.0,
+      "pulse_failing_endpoints": 0.0,
+      "pulse_total_endpoints": 13520.0,
+      "timing_met": true,
+      "luts": 34506.0,
+      "ff": 13228.0,
+      "bram_tiles": 43.5,
+      "no_clock": 0,
+      "unconstrained_internal_endpoints": 0,
+      "loops": 0,
+      "latch_loops": 0
+    }
+  },
+  "fresh_route": {
+    "routable_nets": 43405,
+    "fully_routed_nets": 43405,
+    "routing_error_nets": 0,
+    "complete": true
+  },
+  "limitations": "OOC internal scheduler timing only; external IO timing and board integration excluded; no bitstream or hardware test",
+  "fresh_75mhz_pass": true,
+  "fresh_route_clock_sweep": [
+    {
+      "mhz": 75.1,
+      "period_ns": 13.316,
+      "setup_slack_ns": -0.003,
+      "hold_slack_ns": 0.044,
+      "all_timing_met": false
+    },
+    {
+      "mhz": 75.0,
+      "period_ns": 13.333,
+      "setup_slack_ns": 0.014,
+      "hold_slack_ns": 0.044,
+      "all_timing_met": true
+    },
+    {
+      "mhz": 72.0,
+      "period_ns": 13.889,
+      "setup_slack_ns": 0.57,
+      "hold_slack_ns": 0.044,
+      "all_timing_met": true
+    },
+    {
+      "mhz": 70.0,
+      "period_ns": 14.286,
+      "setup_slack_ns": 0.967,
+      "hold_slack_ns": 0.044,
+      "all_timing_met": true
+    }
+  ],
+  "margin_route": {
+    "routable_nets": 43405,
+    "fully_routed_nets": 43405,
+    "routing_error_nets": 0,
+    "complete": true
+  },
+  "recommended_frequency_mhz": 70,
+  "validation_date": "2026-10-24",
+  "timezone": "Asia/Seoul",
+  "rtl_commit": "628f57407fc729bd7db3da465c9eab53c3ab0264",
+  "original_rtl_sha256": {
+    "_element_logics.sv": "b330cb3f3af0bc1e0650f40ea11b5d407378718bc6a945f669c1228f1fa8df6d",
+    "eulsukdo_scheduler.sv": "b16bc7a96d0eda8bfafd2f1a870c8447d1122116bd370ed13094c82810c32acc",
+    "flow_control_logic.sv": "8bc64d4778f86e270172a5777723830b58932e171d40ec4c9ad236ac465715c6",
+    "instruction_state_table.sv": "3362962bcd15bd66431baafafef0f48bec3f8be552c65902b832e75028f7569e",
+    "new_entry_logic.sv": "bab7518424804500c5c9d42fca1802fed3f602f7ba690dd9084c309917e33193",
+    "physical_register_mapper.sv": "05f8efbe29c7378fbb6d5e25c6ed6e425d3d5aeba9dbb0cc85c733fa77b41d06",
+    "ready_station.sv": "d33c25b208cdcc0f24d91e951ac51608d30e81b0c305c3fc9e0cdc73915ab059",
+    "write_back_concatenation.sv": "9a62e2fdcdd6723a241d5d7e1264be3053427fbf47efa18dc878f6cd6fb41b68"
+  },
+  "implementation_tool": "Vivado 2020.2",
+  "part": "xc7z020clg400-1",
+  "source_compatibility": "Existing variable-$countones replacement in _element_logics.sv was applied only to synthesis snapshots for Vivado 2020.2."
+}
